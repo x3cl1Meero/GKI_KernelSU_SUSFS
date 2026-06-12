@@ -64,14 +64,15 @@ def _modify_command_str(cmd_str):
 
                 cmd_str += extra.format(prefix=prefix)
 
-    # ИСПРАВЛЕНИЕ: После копирования LZ4KD include файлов восстанавливаем стандартные заголовки
-    # LZ4KD пакет перезаписывает key.h, io.h, asm/io.h что ломает компиляцию
+    # ИСПРАВЛЕНИЕ: Сохраняем стандартные заголовки ДО копирования LZ4KD, восстанавливаем ПОСЛЕ
     if "cp -r" in cmd_str and "lz4k" in cmd_str and "include/linux" in cmd_str:
-        cmd_str += " ; (git checkout -- include/linux/key.h include/linux/cred.h include/linux/io.h arch/arm64/include/asm/io.h 2>/dev/null || true)"
+        cmd_str = "mkdir -p /tmp/lz4kd_hdr_bak && cp include/linux/key.h include/linux/cred.h include/linux/io.h arch/arm64/include/asm/io.h /tmp/lz4kd_hdr_bak/ 2>/dev/null ; " + cmd_str + " ; cp /tmp/lz4kd_hdr_bak/key.h include/linux/ 2>/dev/null ; cp /tmp/lz4kd_hdr_bak/cred.h include/linux/ 2>/dev/null ; cp /tmp/lz4kd_hdr_bak/io.h include/linux/ 2>/dev/null ; cp /tmp/lz4kd_hdr_bak/io.h arch/arm64/include/asm/ 2>/dev/null ; rm -rf /tmp/lz4kd_hdr_bak"
 
-    # ИСПРАВЛЕНИЕ: lz4k_oplus копирует файлы в lib/ и перезаписывает lib/Kconfig и lib/Makefile
+    # ИСПРАВЛЕНИЕ: lz4k_oplus/* копирует файлы плоско в lib/ и может перезаписать lib/Kconfig и lib/Makefile.
+    # Сохраняем ДО копирования, восстанавливаем ПОСЛЕ. Также создаём lib/lz4k_oplus/Kconfig
+    # для 6.1 (патч добавляет source "lib/lz4k_oplus/Kconfig").
     if "cp -r" in cmd_str and "lz4k_oplus" in cmd_str and "lib/" in cmd_str:
-        cmd_str += " ; (git checkout -- lib/Kconfig lib/Makefile 2>/dev/null || true)"
+        cmd_str = "mkdir -p /tmp/lz4kd_lib_bak && cp lib/Kconfig lib/Makefile /tmp/lz4kd_lib_bak/ 2>/dev/null ; " + cmd_str + " ; mkdir -p lib/lz4k_oplus && touch lib/lz4k_oplus/Kconfig ; cp /tmp/lz4kd_lib_bak/Kconfig /tmp/lz4kd_lib_bak/Makefile lib/ 2>/dev/null ; rm -rf /tmp/lz4kd_lib_bak"
 
     # ИСПРАВЛЕНИЕ: Если патч на lib/Kconfig или lib/Makefile упал - добавляем LZ4KD записи вручную
     if "patch" in cmd_str and "lz4kd.patch" in cmd_str:
