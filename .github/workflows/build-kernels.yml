@@ -215,7 +215,8 @@ jobs:
                     cd "$COMMON_DIR"
                     git checkout -- include/linux/key.h include/linux/cred.h include/linux/io.h 2>/dev/null || true
                     git checkout -- arch/arm64/include/asm/io.h 2>/dev/null || true
-                    echo "✅ [LZ4KD Patcher] Стандартные заголовки восстановлены."
+                    git checkout -- lib/Kconfig lib/Makefile 2>/dev/null || true
+                    echo "✅ [LZ4KD Patcher] Стандартные заголовки и lib/Kconfig, lib/Makefile восстановлены."
                     if [ -f lib/Kconfig.rej ]; then
                       echo "🔧 [LZ4KD Patcher] Восстанавливаю lib/Kconfig из git и добавляю LZ4KD записи..."
                       git checkout -- lib/Kconfig 2>/dev/null || true
