@@ -69,29 +69,33 @@ def _modify_command_str(cmd_str):
     if "cp -r" in cmd_str and "lz4k" in cmd_str and "include/linux" in cmd_str:
         cmd_str += " ; (git checkout -- include/linux/key.h include/linux/cred.h include/linux/io.h arch/arm64/include/asm/io.h 2>/dev/null || true)"
 
+    # ИСПРАВЛЕНИЕ: lz4k_oplus копирует файлы в lib/ и перезаписывает lib/Kconfig и lib/Makefile
+    if "cp -r" in cmd_str and "lz4k_oplus" in cmd_str and "lib/" in cmd_str:
+        cmd_str += " ; (git checkout -- lib/Kconfig lib/Makefile 2>/dev/null || true)"
+
     # ИСПРАВЛЕНИЕ: Если патч на lib/Kconfig или lib/Makefile упал - добавляем LZ4KD записи вручную
     if "patch" in cmd_str and "lz4kd.patch" in cmd_str:
         cmd_str += " ; if [ -f lib/Kconfig.rej ]; then " \
-            "grep -q 'config LZ4KD' lib/Kconfig || echo -e '\\nconfig LZ4KD\\n\\ttristate \"LZ4KD compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4KD compression algorithm for ZRAM.' >> lib/Kconfig ; " \
-            "grep -q 'config LZ4K_OPLUS' lib/Kconfig || echo -e '\\nconfig LZ4K_OPLUS\\n\\ttristate \"LZ4K OPLUS compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4K OPLUS variant compression.' >> lib/Kconfig ; " \
+            "grep -q 'config LZ4KD' lib/Kconfig || printf '\\nconfig LZ4KD\\n\\ttristate \"LZ4KD compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4KD compression algorithm for ZRAM.\\n' >> lib/Kconfig ; " \
+            "grep -q 'config LZ4K_OPLUS' lib/Kconfig || printf '\\nconfig LZ4K_OPLUS\\n\\ttristate \"LZ4K OPLUS compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4K OPLUS variant compression.\\n' >> lib/Kconfig ; " \
             "rm -f lib/Kconfig.rej ; " \
             "fi ; " \
             "if [ -f lib/Makefile.rej ]; then " \
-            "grep -q 'lz4kd' lib/Makefile || echo -e '\\nobj-$(CONFIG_LZ4KD) += lz4kd.o' >> lib/Makefile ; " \
-            "grep -q 'lz4k_oplus' lib/Makefile || echo -e '\\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o' >> lib/Makefile ; " \
+            "grep -q 'lz4kd' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4KD) += lz4kd.o\\n' >> lib/Makefile ; " \
+            "grep -q 'lz4k_oplus' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o\\n' >> lib/Makefile ; " \
             "rm -f lib/Makefile.rej ; " \
             "fi"
 
     # ИСПРАВЛЕНИЕ: Аналогично для lz4k_oplus.patch
     if "patch" in cmd_str and "lz4k_oplus.patch" in cmd_str:
         cmd_str += " ; if [ -f lib/Kconfig.rej ]; then " \
-            "grep -q 'config LZ4KD' lib/Kconfig || echo -e '\\nconfig LZ4KD\\n\\ttristate \"LZ4KD compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4KD compression algorithm for ZRAM.' >> lib/Kconfig ; " \
-            "grep -q 'config LZ4K_OPLUS' lib/Kconfig || echo -e '\\nconfig LZ4K_OPLUS\\n\\ttristate \"LZ4K OPLUS compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4K OPLUS variant compression.' >> lib/Kconfig ; " \
+            "grep -q 'config LZ4KD' lib/Kconfig || printf '\\nconfig LZ4KD\\n\\ttristate \"LZ4KD compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4KD compression algorithm for ZRAM.\\n' >> lib/Kconfig ; " \
+            "grep -q 'config LZ4K_OPLUS' lib/Kconfig || printf '\\nconfig LZ4K_OPLUS\\n\\ttristate \"LZ4K OPLUS compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4K OPLUS variant compression.\\n' >> lib/Kconfig ; " \
             "rm -f lib/Kconfig.rej ; " \
             "fi ; " \
             "if [ -f lib/Makefile.rej ]; then " \
-            "grep -q 'lz4kd' lib/Makefile || echo -e '\\nobj-$(CONFIG_LZ4KD) += lz4kd.o' >> lib/Makefile ; " \
-            "grep -q 'lz4k_oplus' lib/Makefile || echo -e '\\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o' >> lib/Makefile ; " \
+            "grep -q 'lz4kd' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4KD) += lz4kd.o\\n' >> lib/Makefile ; " \
+            "grep -q 'lz4k_oplus' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o\\n' >> lib/Makefile ; " \
             "rm -f lib/Makefile.rej ; " \
             "fi"
 
@@ -111,6 +115,16 @@ def hooked_Popen(args, *vargs, **kwargs):
             args = [_modify_command_str(a) if isinstance(a, str) else a for a in args]
 
         elif len(args) > 0 and isinstance(args[0], str) and "scripts/config" in args[0]:
+
+            cmd_str = " ".join([f'"{a}"' if " " in a else a for a in args])
+
+            cmd_str = _modify_command_str(cmd_str)
+
+            kwargs['shell'] = True
+
+            args = cmd_str
+
+        elif len(args) > 0 and isinstance(args[0], str) and any(k in args[0] for k in ["cp", "patch"]):
 
             cmd_str = " ".join([f'"{a}"' if " " in a else a for a in args])
 
