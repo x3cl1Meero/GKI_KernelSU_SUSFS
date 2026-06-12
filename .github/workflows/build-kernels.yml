@@ -1,3 +1,4 @@
+
 name: Build Kernels
 
 permissions:
@@ -30,8 +31,13 @@ on:
         required: false
         type: string
         default: ''
+      build_time:
+        description: '自定义构建时间 (可选，N或留空=当前UTC)'
+        required: false
+        type: string
+        default: ''
       use_zram:
-        description: '启用 ZRAM (LZ4KD)'
+        description: '启用 ZRAM (LZ4KDC - LZ4HC + Crypto)'
         required: true
         type: boolean
         default: false
@@ -42,6 +48,16 @@ on:
         default: true
       BBG:
         description: '启用 Baseband-guard'
+        required: true
+        type: boolean
+        default: false
+      supp_op:
+        description: '启用 OnePlus 8E 支持'
+        required: true
+        type: boolean
+        default: false
+      set_defbbr:
+        description: '设置 BBR 为默认拥塞算法'
         required: true
         type: boolean
         default: false
@@ -78,6 +94,7 @@ jobs:
         id: get_cache_key
         run: echo "cache_key=${{ github.ref_name }}-ccache" >> $GITHUB_OUTPUT
 
+      # Здесь запускается ваш matrix_generator.py, который формирует задания на параллельную сборку
       - name: Generate build matrix
         id: generate
         run: python3 ${{ env.SCRIPTS_DIR }}/matrix_generator.py
@@ -86,7 +103,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: false # Важно: Если одно ядро упадет, остальные продолжат собираться
       matrix:
         config: ${{ fromJson(needs.prepare.outputs.build_matrix) }}
     env:
@@ -103,6 +120,14 @@ jobs:
           remove-large-packages: 'true'
           remove-swapfile: 'true'
           verbose: 'true'
+
+      - name: Create 10GB Swap Space
+        run: |
+          sudo fallocate -l 10G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: Checkout code
         uses: actions/checkout@v6
@@ -145,6 +170,31 @@ jobs:
 
       - name: Build kernel
         run: |
+          # =========================================================================
+          # ИСПРАВЛЕНИЕ: Патчер mmap.c запускается ТОЛЬКО для ядра 5.15. 
+          # Ядра 6.1+ пропускают этот шаг, что предотвращает ошибку 'const vm_flags_t'
+          # =========================================================================
+          if [ "${{ matrix.config.kernel }}" = "5.15" ]; then
+            (
+              echo "⏳ [Background Patcher] Ожидание исходников ядра 5.15 для патчинга mmap.c..."
+              for i in {1..300}; do
+                FILE=$(find /tmp/gki-build -path "*/common/mm/mmap.c" 2>/dev/null | head -n 1)
+                if [ -n "$FILE" ]; then
+                  if grep -q "vm_flags_clear" "$FILE"; then
+                    echo "✅ [Background Patcher] Файл mmap.c найден! Применяю фикс для 5.15..."
+                    sed -i 's/vm_flags_clear(new_vma, VM_PAD_MASK);/new_vma->vm_flags \&= ~VM_PAD_MASK;/g' "$FILE"
+                    echo "✅ [Background Patcher] Патч успешно применен. Демон завершает работу."
+                    break
+                  fi
+                fi
+                sleep 2
+              done
+            ) &
+          else
+            echo "⏭️ [Background Patcher] Ядро ${{ matrix.config.kernel }}: Патч mmap.c пропущен (в новых версиях vm_flags — строгая константа)."
+          fi
+          # =========================================================================
+
           cd ${{ env.SCRIPTS_DIR }}
 
           ARGS="--android ${{ matrix.config.android }}"
@@ -158,11 +208,19 @@ jobs:
           [ "${{ github.event.inputs.use_zram }}" = "true" ] && ARGS="$ARGS --zram"
           [ "${{ github.event.inputs.use_kpm }}" = "false" ] && ARGS="$ARGS --no-kpm"
           [ "${{ github.event.inputs.BBG }}" = "true" ] && ARGS="$ARGS --bbg"
+          [ "${{ github.event.inputs.supp_op }}" = "true" ] && ARGS="$ARGS --op8e"
+          [ "${{ github.event.inputs.set_defbbr }}" = "true" ] && ARGS="$ARGS --bbr"
+          
           [ -z "${{ github.event.inputs.kernelsu_commit }}" ] || ARGS="$ARGS --ksu-commit=${{ github.event.inputs.kernelsu_commit }}"
           [ -z "${{ github.event.inputs.susfs_commit }}" ] || ARGS="$ARGS --susfs-commit=${{ github.event.inputs.susfs_commit }}"
           [ -z "${{ github.event.inputs.custom_version }}" ] || ARGS="$ARGS --custom-version=${{ github.event.inputs.custom_version }}"
 
-          python3 build.py $ARGS
+          if [ -n "${{ github.event.inputs.build_time }}" ]; then
+            echo "Передаем пользовательскую дату сборки: ${{ github.event.inputs.build_time }}"
+            python3 build.py $ARGS --build-time "${{ github.event.inputs.build_time }}"
+          else
+            python3 build.py $ARGS
+          fi
 
       - name: Save ccache
         uses: ./.github/actions/cache-save
@@ -184,7 +242,6 @@ jobs:
           else
             echo "artifacts_exist=true" >> $GITHUB_OUTPUT
             ls -la artifacts/
-            # 生成 SHA256SUMS
             cd artifacts && sha256sum * > SHA256SUMS.txt && cd ..
           fi
 
@@ -199,11 +256,9 @@ jobs:
         if: always()
         run: |
           mkdir -p build-results
-          # 复制 SHA256SUMS
           if [ -f "artifacts/SHA256SUMS.txt" ]; then
             cp artifacts/SHA256SUMS.txt build-results/${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}.txt
           fi
-          # 记录构建状态
           echo "${{ matrix.config.android }}-${{ matrix.config.kernel }}-${{ matrix.config.sub_level }}:outcome=${{ job.status }}" >> build-results/status.txt
 
       - name: Upload build results
@@ -267,9 +322,7 @@ jobs:
         if: steps.prepare-summary.outputs.success != '0'
         run: |
           mkdir -p release-files
-          
           python3 ${{ env.SCRIPTS_DIR }}/extract_artifacts.py all-artifacts release-files --build-results build-results
-          
           ls -la release-files/
 
       - name: Generate release body
@@ -309,7 +362,6 @@ jobs:
           SUCCESS: ${{ steps.prepare-summary.outputs.success }}
           FAILED: ${{ steps.prepare-summary.outputs.failed }}
         run: |
-          # 检查是否有成功的构建
           if [ "$SUCCESS" -gt 0 ]; then
             python3 ${{ env.SCRIPTS_DIR }}/telegram_notify.py release \
               "${{ needs.prepare.outputs.kernel_version }}" \
