@@ -38,6 +38,7 @@ print(f"SUSFS Version: {KERNEL_VERSION}")
 
 
 class AndroidVersion(Enum):
+    ANDROID11 = "android11"
     ANDROID12 = "android12"
     ANDROID13 = "android13"
     ANDROID14 = "android14"
@@ -45,6 +46,7 @@ class AndroidVersion(Enum):
 
 
 class KernelVersion(Enum):
+    KERNEL_4_14 = "4.14"
     KERNEL_5_10 = "5.10"
     KERNEL_5_15 = "5.15"
     KERNEL_6_1 = "6.1"
@@ -57,6 +59,7 @@ class KSUVersion(Enum):
 
 
 ANDROID_KERNEL_MAP = {
+    AndroidVersion.ANDROID11: [KernelVersion.KERNEL_4_14],
     AndroidVersion.ANDROID12: [KernelVersion.KERNEL_5_10],
     AndroidVersion.ANDROID13: [KernelVersion.KERNEL_5_10, KernelVersion.KERNEL_5_15],
     AndroidVersion.ANDROID14: [KernelVersion.KERNEL_5_15, KernelVersion.KERNEL_6_1],
@@ -65,8 +68,8 @@ ANDROID_KERNEL_MAP = {
 
 # 仓库配置
 KSU_REPO_CONFIG = {"repo_url": "https://github.com/SukiSU-Ultra/SukiSU-Ultra.git",
-                    "branch": "main",
-                    "setup_script": "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh"}
+                   "branch": "main",
+                   "setup_script": "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh"}
 
 # SUSFS 仓库配置
 SUSFS_REPO_CONFIG = {"repo_url": "https://github.com/ShirkNeko/susfs4ksu.git"}
