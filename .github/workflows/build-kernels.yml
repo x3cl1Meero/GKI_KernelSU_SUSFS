@@ -205,53 +205,31 @@ jobs:
           if [ "${{ github.event.inputs.use_zram }}" = "true" ]; then
             (
               echo "⏳ [LZ4KD Patcher] Ожидание копирования LZ4KD include файлов..."
-              KERNEL_SRC=""
               for i in {1..300}; do
                 KERNEL_SRC=$(find /tmp/gki-build -path "*/common/include/linux" -type d 2>/dev/null | head -n 1)
                 if [ -n "$KERNEL_SRC" ]; then
                   COMMON_DIR=$(dirname "$KERNEL_SRC")
-                  # Ждём пока lz4k include файлы будут скопированы (появится маркерный файл)
                   LZ4K_MARKER=$(find "$COMMON_DIR" -path "*/include/linux/lz4kd*" -o -path "*/include/linux/lz4k_*.h" 2>/dev/null | head -n 1)
                   if [ -n "$LZ4K_MARKER" ]; then
                     echo "✅ [LZ4KD Patcher] LZ4KD include файлы обнаружены. Восстанавливаю стандартные заголовки..."
                     cd "$COMMON_DIR"
-                    # Восстанавливаем перезаписанные стандартные заголовки из git
                     git checkout -- include/linux/key.h include/linux/cred.h include/linux/io.h 2>/dev/null || true
                     git checkout -- arch/arm64/include/asm/io.h 2>/dev/null || true
                     echo "✅ [LZ4KD Patcher] Стандартные заголовки восстановлены."
-                    # Исправляем lib/Kconfig если патч упал
                     if [ -f lib/Kconfig.rej ]; then
                       echo "🔧 [LZ4KD Patcher] Восстанавливаю lib/Kconfig из git и добавляю LZ4KD записи..."
                       git checkout -- lib/Kconfig 2>/dev/null || true
                       if ! grep -q "config LZ4KD" lib/Kconfig 2>/dev/null; then
-                        cat >> lib/Kconfig << 'KCONFIG_EOF'
-
-config LZ4KD
-	tristate "LZ4KD compression support"
-	depends on ZRAM
-	help
-	  LZ4KD compression algorithm for ZRAM.
-
-config LZ4K_OPLUS
-	tristate "LZ4K OPLUS compression support"
-	depends on ZRAM
-	help
-	  LZ4K OPLUS variant compression.
-KCONFIG_EOF
+                        printf '\nconfig LZ4KD\n\ttristate "LZ4KD compression support"\n\tdepends on ZRAM\n\thelp\n\t  LZ4KD compression algorithm for ZRAM.\n\nconfig LZ4K_OPLUS\n\ttristate "LZ4K OPLUS compression support"\n\tdepends on ZRAM\n\thelp\n\t  LZ4K OPLUS variant compression.\n' >> lib/Kconfig
                         echo "✅ [LZ4KD Patcher] lib/Kconfig исправлен."
                       fi
                       rm -f lib/Kconfig.rej
                     fi
-                    # Исправляем lib/Makefile если патч упал
                     if [ -f lib/Makefile.rej ]; then
                       echo "🔧 [LZ4KD Patcher] Восстанавливаю lib/Makefile из git и добавляю LZ4KD записи..."
                       git checkout -- lib/Makefile 2>/dev/null || true
                       if ! grep -q "lz4kd" lib/Makefile 2>/dev/null; then
-                        cat >> lib/Makefile << 'MAKEFILE_EOF'
-
-obj-$(CONFIG_LZ4KD) += lz4kd.o
-obj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o
-MAKEFILE_EOF
+                        printf '\nobj-$(CONFIG_LZ4KD) += lz4kd.o\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o\n' >> lib/Makefile
                         echo "✅ [LZ4KD Patcher] lib/Makefile исправлен."
                       fi
                       rm -f lib/Makefile.rej
