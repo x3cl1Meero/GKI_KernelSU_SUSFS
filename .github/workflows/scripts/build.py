@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 
 import argparse
 
@@ -44,13 +44,13 @@ def _modify_command_str(cmd_str):
 
                 extra += " && {prefix}scripts/config -e NET_SCH_FQ -e TCP_CONG_BBR -e DEFAULT_BBR --set-str DEFAULT_TCP_CONG \"bbr\""
 
-        # Если включается ZRAM, принудительно добавляем LZ4KDC (LZ4 Kernel Decompression + Crypto)
+        # Если включается ZRAM, принудительно добавляем криптографические алгоритмы LZ4
 
         if "ZRAM" in cmd_str or "lz4" in cmd_str:
 
             if "CRYPTO_LZ4" not in cmd_str:
 
-                extra += " && {prefix}scripts/config -e CRYPTO_LZ4 -e CRYPTO_LZ4HC -e LZ4_COMPRESS -e LZ4_DECOMPRESS -e ZLIB_DEFLATE -e ZLIB_INFLATE --set-str ZRAM_DEF_COMP \"lz4hc\""
+                extra += " && {prefix}scripts/config -e CRYPTO_LZ4 -e LZ4_COMPRESS --set-str ZRAM_DEF_COMP \"lz4\""
 
         
 
@@ -63,42 +63,6 @@ def _modify_command_str(cmd_str):
                 prefix = match.group(1).replace("scripts/config", "")
 
                 cmd_str += extra.format(prefix=prefix)
-
-    # ИСПРАВЛЕНИЕ: Сохраняем стандартные заголовки ДО копирования LZ4KD, восстанавливаем ПОСЛЕ
-    if "cp -r" in cmd_str and "lz4k" in cmd_str and "include/linux" in cmd_str:
-        cmd_str = "mkdir -p /tmp/lz4kd_hdr_bak && cp include/linux/key.h include/linux/cred.h include/linux/io.h arch/arm64/include/asm/io.h /tmp/lz4kd_hdr_bak/ 2>/dev/null ; " + cmd_str + " ; cp /tmp/lz4kd_hdr_bak/key.h include/linux/ 2>/dev/null ; cp /tmp/lz4kd_hdr_bak/cred.h include/linux/ 2>/dev/null ; cp /tmp/lz4kd_hdr_bak/io.h include/linux/ 2>/dev/null ; cp /tmp/lz4kd_hdr_bak/io.h arch/arm64/include/asm/ 2>/dev/null ; rm -rf /tmp/lz4kd_hdr_bak"
-
-    # ИСПРАВЛЕНИЕ: lz4k_oplus/* копирует файлы плоско в lib/ и может перезаписать lib/Kconfig и lib/Makefile.
-    # Сохраняем ДО копирования, восстанавливаем ПОСЛЕ. Также создаём lib/lz4k_oplus/Kconfig
-    # для 6.1 (патч добавляет source "lib/lz4k_oplus/Kconfig").
-    if "cp -r" in cmd_str and "lz4k_oplus" in cmd_str and "lib/" in cmd_str:
-        cmd_str = "mkdir -p /tmp/lz4kd_lib_bak && cp lib/Kconfig lib/Makefile /tmp/lz4kd_lib_bak/ 2>/dev/null ; " + cmd_str + " ; mkdir -p lib/lz4k_oplus && touch lib/lz4k_oplus/Kconfig ; cp /tmp/lz4kd_lib_bak/Kconfig /tmp/lz4kd_lib_bak/Makefile lib/ 2>/dev/null ; rm -rf /tmp/lz4kd_lib_bak"
-
-    # ИСПРАВЛЕНИЕ: Если патч на lib/Kconfig или lib/Makefile упал - добавляем LZ4KD записи вручную
-    if "patch" in cmd_str and "lz4kd.patch" in cmd_str:
-        cmd_str += " ; if [ -f lib/Kconfig.rej ]; then " \
-            "grep -q 'config LZ4KD' lib/Kconfig || printf '\\nconfig LZ4KD\\n\\ttristate \"LZ4KD compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4KD compression algorithm for ZRAM.\\n' >> lib/Kconfig ; " \
-            "grep -q 'config LZ4K_OPLUS' lib/Kconfig || printf '\\nconfig LZ4K_OPLUS\\n\\ttristate \"LZ4K OPLUS compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4K OPLUS variant compression.\\n' >> lib/Kconfig ; " \
-            "rm -f lib/Kconfig.rej ; " \
-            "fi ; " \
-            "if [ -f lib/Makefile.rej ]; then " \
-            "grep -q 'lz4kd' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4KD) += lz4kd.o\\n' >> lib/Makefile ; " \
-            "grep -q 'lz4k_oplus' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o\\n' >> lib/Makefile ; " \
-            "rm -f lib/Makefile.rej ; " \
-            "fi"
-
-    # ИСПРАВЛЕНИЕ: Аналогично для lz4k_oplus.patch
-    if "patch" in cmd_str and "lz4k_oplus.patch" in cmd_str:
-        cmd_str += " ; if [ -f lib/Kconfig.rej ]; then " \
-            "grep -q 'config LZ4KD' lib/Kconfig || printf '\\nconfig LZ4KD\\n\\ttristate \"LZ4KD compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4KD compression algorithm for ZRAM.\\n' >> lib/Kconfig ; " \
-            "grep -q 'config LZ4K_OPLUS' lib/Kconfig || printf '\\nconfig LZ4K_OPLUS\\n\\ttristate \"LZ4K OPLUS compression support\"\\n\\tdepends on ZRAM\\n\\thelp\\n\\t  LZ4K OPLUS variant compression.\\n' >> lib/Kconfig ; " \
-            "rm -f lib/Kconfig.rej ; " \
-            "fi ; " \
-            "if [ -f lib/Makefile.rej ]; then " \
-            "grep -q 'lz4kd' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4KD) += lz4kd.o\\n' >> lib/Makefile ; " \
-            "grep -q 'lz4k_oplus' lib/Makefile || printf '\\nobj-$(CONFIG_LZ4K_OPLUS) += lz4k_oplus.o\\n' >> lib/Makefile ; " \
-            "rm -f lib/Makefile.rej ; " \
-            "fi"
 
     return cmd_str
 
@@ -116,16 +80,6 @@ def hooked_Popen(args, *vargs, **kwargs):
             args = [_modify_command_str(a) if isinstance(a, str) else a for a in args]
 
         elif len(args) > 0 and isinstance(args[0], str) and "scripts/config" in args[0]:
-
-            cmd_str = " ".join([f'"{a}"' if " " in a else a for a in args])
-
-            cmd_str = _modify_command_str(cmd_str)
-
-            kwargs['shell'] = True
-
-            args = cmd_str
-
-        elif len(args) > 0 and isinstance(args[0], str) and any(k in args[0] for k in ["cp", "patch"]):
 
             cmd_str = " ".join([f'"{a}"' if " " in a else a for a in args])
 
@@ -176,69 +130,38 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_BUILD_MATRIX = {
-
+   "android12-5.4": [
+    {"sub_level": "254", "os_patch_level": "lts"},  # используется -lts ветка
+    ],
     "android12-5.10": [
-
         {"sub_level": "136", "os_patch_level": "2022-11", "revision": "r15"},
-
         {"sub_level": "198", "os_patch_level": "2024-01", "revision": "r17"},
-
         {"sub_level": "209", "os_patch_level": "2024-05", "revision": "r13"},
-
         {"sub_level": "236", "os_patch_level": "2025-05", "revision": "r1"},
-
         {"sub_level": "X", "os_patch_level": "lts", "revision": "r1"},
-
     ],
-
     "android13-5.15": [
-
         {"sub_level": "74", "os_patch_level": "2023-01"},
-
         {"sub_level": "123", "os_patch_level": "2023-11"},
-
         {"sub_level": "148", "os_patch_level": "2024-05"},
-
-        {"sub_level": "167", "os_patch_level": "2024-12"},
-
         {"sub_level": "170", "os_patch_level": "2025-01"},
-
         {"sub_level": "178", "os_patch_level": "2025-03"},
-
         {"sub_level": "180", "os_patch_level": "2025-05"},
-
         {"sub_level": "189", "os_patch_level": "2025-09"},
-
     ],
-
     "android14-6.1": [
-
         {"sub_level": "78", "os_patch_level": "2024-06"},
-
         {"sub_level": "90", "os_patch_level": "2024-08"},
-
         {"sub_level": "99", "os_patch_level": "2024-10"},
-
         {"sub_level": "124", "os_patch_level": "2025-02"},
-
-        {"sub_level": "138", "os_patch_level": "2025-06"},
-
         {"sub_level": "145", "os_patch_level": "2025-09"},
-
     ],
-
     "android15-6.6": [
-
         {"sub_level": "50", "os_patch_level": "2024-10"},
-
         {"sub_level": "66", "os_patch_level": "2025-02"},
-
         {"sub_level": "102", "os_patch_level": "2025-10"},
-
     ],
-
 }
-
 
 
 def parse_args() -> argparse.Namespace:
