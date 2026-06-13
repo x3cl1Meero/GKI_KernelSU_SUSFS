@@ -143,8 +143,12 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
     def clone_repositories(self):
         logger.info("=== 开始克隆仓库 ===")
+        
+        # Фоллбэк для ядра 5.4, так как ветки gki-android12-5.4 не существует
+        susfs_branch = "main" if self.config.kernel_version == "5.4" else self.config.kernel_branch
+
         for name, repo_dir, url, branch in [
-            ("SUSFS", self.susfs_dir, SUSFS_REPO_CONFIG['repo_url'], self.config.kernel_branch),
+            ("SUSFS", self.susfs_dir, SUSFS_REPO_CONFIG['repo_url'], susfs_branch),
             ("SukiSU Patch", self.sukisu_patch_dir, SUKISU_PATCH_REPO_CONFIG['repo_url'], None),
             ("AnyKernel3", self.anykernel_dir, ANYKERNEL_CONFIG['repo_url'], ANYKERNEL_CONFIG['branch']),
             ("Kernel Patches", self.kernel_patches_dir, KERNEL_PATCHES_CONFIG['repo_url'], None),
@@ -154,7 +158,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 if branch:
                     cmd += f" -b {branch}"
                 logger.info(f"克隆 {name}...")
-                self._run_cmd(cmd, check=False)
+                self._run_cmd(cmd, check=True) # Изменено на True для Fail-Fast
             else:
                 logger.info(f"{name} 已存在，跳过")
         self._apply_susfs_commit()
@@ -518,16 +522,16 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         logger.info("=== 显示内核配置列表 ===")
         self._chdir(self.work_dir)
         config_file = self.work_dir / "common/arch/arm64/configs/gki_defconfig"
-        
+
         if not config_file.exists():
             logger.warning(f"配置文件不存在: {config_file}")
             return
-        
+
         with open(config_file, "r") as f:
             lines = f.readlines()
-        
+
         config_lines = [line.strip() for line in lines if line.strip().startswith("CONFIG_")]
-        
+
         key_configs = {
             "CONFIG_KSU": "KernelSU",
             "CONFIG_KPM": "KPM",
@@ -536,7 +540,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             "CONFIG_BBR": "BBR",
             "CONFIG_ZRAM": "ZRAM",
         }
-        
+
         logger.info("关键配置状态:")
         for prefix, name in key_configs.items():
             found = [c for c in config_lines if c.startswith(prefix)]
@@ -548,15 +552,14 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             if found:
                 for f in sorted(found):
                     logger.info(f"      -> {f}")
-        
-        # 显示 ZRAM 相关配置
+
         if self.config.use_zram:
             zram_configs = [c for c in config_lines if any(x in c for x in ["ZRAM", "ZSMALLOC", "LZ4", "LZ4KD", "CRYPTO_LZ4", "MODULE_SIG"])]
             if zram_configs:
                 logger.info("ZRAM 相关配置:")
                 for zc in sorted(zram_configs):
                     logger.info(f"  -> {zc}")
-        
+
         logger.info("-" * 60)
 
     def build_kernel(self) -> bool:
@@ -575,10 +578,37 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         try:
             if (self.work_dir / "build/build.sh").exists():
                 logger.info("使用旧版构建方式...")
-                result = self._run_cmd("LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC=\"/usr/bin/ccache clang\"", check=False)
+                # =========================================================
+                # Ядро 5.4: отключаем HDRTEST через USERCFLAGS.
+                # build.sh для 5.4 запускает тест заголовков (HDRTEST), который
+                # требует системный sys/socket.h. В окружении GitHub Actions
+                # этот файл лежит в /usr/include/<multiarch>/, поэтому передаём
+                # путь явно. Без этого сборка падает с:
+                #   fatal error: 'sys/socket.h' file not found
+                # =========================================================
+                if self.config.kernel_version == "5.4":
+                    logger.info("⚙️  Ядро 5.4: применяем USERCFLAGS для HDRTEST...")
+                    multiarch = subprocess.run(
+                        "gcc -print-multiarch 2>/dev/null || echo x86_64-linux-gnu",
+                        shell=True, capture_output=True, text=True
+                    ).stdout.strip() or "x86_64-linux-gnu"
+                    usercflags = f"-I/usr/include -I/usr/include/{multiarch}"
+                    cmd = (
+                        f'USERCFLAGS="{usercflags}" '
+                        f'LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 '
+                        f'build/build.sh CC="/usr/bin/ccache clang"'
+                    )
+                else:
+                    cmd = 'LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"'
+
+                result = self._run_cmd(cmd, check=False)
             else:
                 logger.info("使用 Bazel 构建方式...")
-                result = self._run_cmd("tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast --lto=thin //common:kernel_aarch64_dist", check=False)
+                result = self._run_cmd(
+                    "tools/bazel build --disk_cache=/home/runner/.cache/bazel "
+                    "--config=fast --lto=thin //common:kernel_aarch64_dist",
+                    check=False
+                )
 
             if result.returncode == 0:
                 logger.info("=== 内核编译成功 ===")
