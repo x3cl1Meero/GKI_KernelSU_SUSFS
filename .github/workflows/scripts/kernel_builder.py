@@ -307,6 +307,47 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         hooks_patch = self.sukisu_patch_dir / "69_hide_stuff.patch"
         if hooks_patch.exists():
             self._run_cmd(f"cp {hooks_patch} . && patch -p1 -F 3 < 69_hide_stuff.patch", check=False)
+        if self.config.kernel_version == "5.4":
+            self._patch_54_compat()
+
+    def _patch_54_compat(self):
+        logger.info("=== 应用 5.4 兼容性补丁 ===")
+        common_dir = self.work_dir / "common"
+        ksu_dir = common_dir / "drivers/kernelsu"
+
+        compat_h = ksu_dir / "infra/kernel_compat.h"
+        if compat_h.exists():
+            with open(compat_h, "r") as f:
+                content = f.read()
+            if "#define strncpy_from_user_nofault" not in content:
+                shim = (
+                    "\n#ifndef strncpy_from_user_nofault\n"
+                    "#define strncpy_from_user_nofault __strncpy_from_user_nofault\n"
+                    "#endif\n"
+                )
+                with open(compat_h, "a") as f:
+                    f.write(shim)
+
+        susfs_h = common_dir / "include/linux/susfs.h"
+        if susfs_h.exists():
+            with open(susfs_h, "r") as f:
+                content = f.read()
+            stubs = ""
+            if "ksu_selinux_hide_handle_post_fs_data" not in content:
+                stubs += (
+                    "\n#ifndef ksu_selinux_hide_handle_post_fs_data\n"
+                    "static inline void ksu_selinux_hide_handle_post_fs_data(void) {}\n"
+                    "#endif\n"
+                )
+            if "ksu_selinux_hide_handle_second_stage" not in content:
+                stubs += (
+                    "#ifndef ksu_selinux_hide_handle_second_stage\n"
+                    "static inline void ksu_selinux_hide_handle_second_stage(void) {}\n"
+                    "#endif\n"
+                )
+            if stubs:
+                with open(susfs_h, "a") as f:
+                    f.write(stubs)
 
     def apply_zram_patches(self):
         if not self.config.use_zram:
