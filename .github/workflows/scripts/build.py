@@ -18,6 +18,13 @@ from pathlib import Path
 
 from datetime import datetime, timezone
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 
 # =========================================================================
 
@@ -331,12 +338,21 @@ def build_single(config: BuildConfig, workspace: str, dry_run: bool = False) -> 
 
 
 
-def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str) -> list:
+def load_matrix_from_file(file_path: str) -> dict:
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"无法加载矩阵文件: {file_path} - {e}")
+        return {}
+
+
+def build_matrix(matrix_key: str, args: argparse.Namespace, workspace: str, matrix_override: dict = None) -> list:
 
     logger.info(f"\n{'=' * 60}\n开始构建矩阵: {matrix_key}\n{'=' * 60}\n")
 
-
-    configs_data = DEFAULT_BUILD_MATRIX.get(matrix_key, [])
+    matrix = matrix_override or DEFAULT_BUILD_MATRIX
+    configs_data = matrix.get(matrix_key, [])
 
     if not configs_data:
 
@@ -561,14 +577,23 @@ def main():
 
     results = []
 
+    matrix_override = None
+
+    if args.matrix and os.path.isfile(args.matrix):
+        matrix_override = load_matrix_from_file(args.matrix)
+        if not matrix_override:
+            logger.error("矩阵文件为空或无效")
+            return 1
 
     if args.all:
-
         results = build_all(args, workspace)
 
     elif args.matrix:
-
-        results = build_matrix(args.matrix, args, workspace)
+        if matrix_override:
+            for matrix_key in sorted(matrix_override.keys()):
+                results.extend(build_matrix(matrix_key, args, workspace, matrix_override))
+        else:
+            results = build_matrix(args.matrix, args, workspace)
 
     else:
 
