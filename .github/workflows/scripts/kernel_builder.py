@@ -349,6 +349,38 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 with open(susfs_h, "a") as f:
                     f.write(stubs)
 
+        selinuxfs = common_dir / "security/selinux/selinuxfs.c"
+        if selinuxfs.exists():
+            with open(selinuxfs, "r") as f:
+                content = f.read()
+            if "selinux_state.status_lock" in content:
+                content = content.replace(
+                    "mutex_lock(&selinux_state.status_lock);", "")
+                content = content.replace(
+                    "mutex_unlock(&selinux_state.status_lock);", "")
+                with open(selinuxfs, "w") as f:
+                    f.write(content)
+
+        task_mmu = common_dir / "fs/proc/task_mmu.c"
+        if task_mmu.exists():
+            with open(task_mmu, "r") as f:
+                content = f.read()
+            if "void show_smap_vma" in content and "return 0;" in content:
+                in_show_smap = False
+                lines = content.split('\n')
+                fixed = []
+                for line in lines:
+                    if "void show_smap_vma" in line:
+                        in_show_smap = True
+                    if in_show_smap and line.strip() == "return 0;":
+                        fixed.append(line.replace("return 0;", "return;"))
+                    else:
+                        fixed.append(line)
+                    if in_show_smap and line.strip() == "}":
+                        in_show_smap = False
+                with open(task_mmu, "w") as f:
+                    f.write('\n'.join(fixed))
+
     def apply_zram_patches(self):
         if not self.config.use_zram:
             return
