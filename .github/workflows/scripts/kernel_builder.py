@@ -379,6 +379,10 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             else:
                 f.write("CONFIG_KSU_SUSFS_SUS_PATH=n\n")
 
+        if self.config.kernel_version == "5.4":
+            with open(config_file, "a") as f:
+                f.write("# CONFIG_HEADERS_INSTALL is not set\n")
+
         if self.config.use_zram:
             self._configure_zram()
             self._configure_bazel()
