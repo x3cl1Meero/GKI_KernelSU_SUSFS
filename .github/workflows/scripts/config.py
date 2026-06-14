@@ -156,6 +156,15 @@ class BuildConfig:
 
     @property
     def kernel_branch(self) -> str:
+        # SUSFS branch mapping for unsupported kernel versions
+        susfs_branch_map = {
+            ("android12", "5.4"): "gki-android12-5.10",
+            ("android13", "5.10"): "gki-android13-5.15",
+            ("android14", "5.15"): "gki-android14-6.1",  # fallback to 6.1 if 5.15 not available
+        }
+        key = (self.android_version, self.kernel_version)
+        if key in susfs_branch_map:
+            return susfs_branch_map[key]
         return f"gki-{self.android_version}-{self.kernel_version}"
 
     def get_susfs_patch_filename(self) -> str:
