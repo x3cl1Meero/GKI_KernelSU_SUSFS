@@ -635,6 +635,52 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
 
         logger.info("-" * 60)
 
+    def _patch_hdrtest_for_5_4(self):
+        """
+        Ядро 5.4 запускает HDRTEST — компиляцию заголовков хоста через clang.
+        linux/if.h включает sys/socket.h, которого нет в стандартном пути clang
+        в окружении GitHub Actions. Решение: патчим usr/include/Makefile ядра,
+        добавляя флаг -I к системным заголовкам прямо в правиле HDRTEST.
+        Это надёжнее USERCFLAGS, который build.sh не пробрасывает во внутренний make.
+        """
+        hdr_makefile = self.work_dir / "common/usr/include/Makefile"
+        if not hdr_makefile.exists():
+            logger.warning("⚠️  usr/include/Makefile не найден, пропускаем патч HDRTEST")
+            return
+
+        with open(hdr_makefile, "r") as f:
+            content = f.read()
+
+        # Уже пропатчено
+        if "x86_64-linux-gnu" in content or "HDRTEST_CFLAGS" in content:
+            logger.info("✅ usr/include/Makefile уже пропатчен")
+            return
+
+        # Определяем путь к мультиарч-заголовкам
+        multiarch = subprocess.run(
+            "gcc -print-multiarch 2>/dev/null || echo x86_64-linux-gnu",
+            shell=True, capture_output=True, text=True
+        ).stdout.strip() or "x86_64-linux-gnu"
+
+        # Добавляем HDRTEST_CFLAGS в начало Makefile
+        patch_line = (
+            f"# Patch for 5.4 HDRTEST: sys/socket.h not found fix\n"
+            f"HDRTEST_CFLAGS += -I/usr/include -I/usr/include/{multiarch}\n\n"
+        )
+
+        # Также заменяем вызов компилятора в правиле hdrtest чтобы флаги применились
+        if "$(CC)" in content and "hdrtest" in content:
+            content = content.replace(
+                "$(CC) $(HDRTEST_FLAGS)",
+                "$(CC) $(HDRTEST_FLAGS) $(HDRTEST_CFLAGS)"
+            )
+
+        content = patch_line + content
+        with open(hdr_makefile, "w") as f:
+            f.write(content)
+
+        logger.info(f"✅ Патч HDRTEST применён (multiarch: {multiarch})")
+
     def build_kernel(self) -> bool:
         logger.info("=== 开始编译内核 ===")
         self._chdir(self.work_dir)
@@ -651,29 +697,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         try:
             if (self.work_dir / "build/build.sh").exists():
                 logger.info("使用旧版构建方式...")
-                # =========================================================
-                # Ядро 5.4: отключаем HDRTEST через USERCFLAGS.
-                # build.sh для 5.4 запускает тест заголовков (HDRTEST), который
-                # требует системный sys/socket.h. В окружении GitHub Actions
-                # этот файл лежит в /usr/include/<multiarch>/, поэтому передаём
-                # путь явно. Без этого сборка падает с:
-                #   fatal error: 'sys/socket.h' file not found
-                # =========================================================
-                if self.config.kernel_version == "5.4":
-                    logger.info("⚙️  Ядро 5.4: применяем USERCFLAGS для HDRTEST...")
-                    multiarch = subprocess.run(
-                        "gcc -print-multiarch 2>/dev/null || echo x86_64-linux-gnu",
-                        shell=True, capture_output=True, text=True
-                    ).stdout.strip() or "x86_64-linux-gnu"
-                    usercflags = f"-I/usr/include -I/usr/include/{multiarch}"
-                    cmd = (
-                        f'USERCFLAGS="{usercflags}" '
-                        f'LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 '
-                        f'build/build.sh CC="/usr/bin/ccache clang"'
-                    )
-                else:
-                    cmd = 'LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"'
-
+                cmd = 'LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"'
                 result = self._run_cmd(cmd, check=False)
             else:
                 logger.info("使用 Bazel 构建方式...")
@@ -812,6 +836,10 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self.configure_kernel()
             self.configure_kernel_name()
             self.show_kernel_config()
+
+            # Патч HDRTEST только для ядра 5.4 (sys/socket.h не найден в clang)
+            if self.config.kernel_version == "5.4":
+                self._patch_hdrtest_for_5_4()
 
             if not self.build_kernel():
                 return BuildResult(success=False, config=self.config, message="内核编译失败", build_time=time.time() - start_time)
