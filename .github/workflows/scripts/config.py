@@ -168,7 +168,14 @@ class BuildConfig:
         return f"gki-{self.android_version}-{self.kernel_version}"
 
     def get_susfs_patch_filename(self) -> str:
-        return f"50_add_susfs_in_gki-{self.android_version}-{self.kernel_version}.patch"
+        susfs_branch_map = {
+            ("android12", "5.4"): ("android12", "5.10"),
+            ("android13", "5.10"): ("android13", "5.15"),
+            ("android14", "5.15"): ("android14", "6.1"),
+        }
+        key = (self.android_version, self.kernel_version)
+        av, kv = susfs_branch_map.get(key, (self.android_version, self.kernel_version))
+        return f"50_add_susfs_in_gki-{av}-{kv}.patch"
 
     def is_lts(self) -> bool:
         return self.sub_level == "X"
