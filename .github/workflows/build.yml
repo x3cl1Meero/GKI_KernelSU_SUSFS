@@ -896,7 +896,7 @@ jobs:
           echo "  集成 Baseband-guard LSM 模块 (${{ inputs.kernel_version }})"
           echo "========================================"
 
-          BBG_SRC="$GITHUB_WORKSPACE/config/baseband-guard"
+          BBG_SRC="${{ github.workspace }}/config/baseband-guard"
           BBG_DST="security/baseband-guard"
 
           if [ ! -d "$BBG_SRC" ]; then
