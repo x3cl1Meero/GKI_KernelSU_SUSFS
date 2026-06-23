@@ -1168,10 +1168,10 @@ jobs:
               # В 5.15 используется struct user_namespace *mnt_userns
               sed -i '/int vfs_rmdir(struct user_namespace \*mnt_userns/,/^{/ s/^{/{\n\tbbg_check(mnt_userns, dentry, 2);/' fs/namei.c
               ;;
-            "5.10")
-              # В 5.10 namespace еще нет в vfs_rmdir, передаем NULL
-              sed -i '/int vfs_rmdir(struct inode \*dir/,/^{/ s/^{/{\n\tbbg_check(NULL, dentry, 2);/' fs/namei.c
-              ;;
+           "5.10")
+            sed -i '1i extern void bbg_check(void *mnt, struct dentry *dentry, int type);' fs/namei.c
+            sed -i '/int error = may_delete(dir, dentry, 1);/a \	bbg_check(NULL, dentry, 2);' fs/namei.c
+            ;;
             *)
               echo "::warning::Версия ядра ${{ inputs.kernel_version }} не адаптирована под автоматический BBG патч!"
               exit 1
