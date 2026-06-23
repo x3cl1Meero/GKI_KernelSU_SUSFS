@@ -3,51 +3,133 @@
 #include <linux/string.h>
 #include <linux/printk.h>
 #include <linux/blkdev.h>
-#include <linux/panic.h>
+#include <linux/errno.h>
+#include <linux/sched.h>
 
-/* Список защищаемых разделов и критических сигнатур */
 static const char *protected_targets[] = {
-    "boot", "bootloader", "radio", "modem", "nvram", "nvdata",
-    "persist", "metadata", "connsys", "protect", "seccfg",
-    "preloader", "logo", "efuse", "xloader", "sdc"
+    "boot",
+    "vendor_boot",
+    "init_boot",
+    "dtbo",
+    "vbmeta",
+    "vbmeta_system",
+    "vbmeta_vendor",
+    "super",
+    "metadata",
+    "persist",
+    "modem",
+    "nvram",
+    "nvdata",
+    "protect",
+    "protect1",
+    "protect2",
+    "seccfg",
+    "preloader",
+    "lk",
+    "logo",
+    "efuse",
+    "xloader",
+    "tee",
+    "connsys"
 };
 
-/* Основная функция проверки для FS-хуков (например, vfs_rmdir) */
-void bbg_check(void *mnt, struct dentry *dentry, int type) {
-    if (!dentry || !dentry->d_name.name)
-        return;
+static bool bbg_is_whitelisted(void)
+{
+    const char *comm = current->comm;
 
-    const char *name = dentry->d_name.name;
-    int i;
-    int size = sizeof(protected_targets) / sizeof(protected_targets[0]);
+    if (!strcmp(comm, "init"))
+        return true;
 
-    for (i = 0; i < size; i++) {
-        if (strstr(name, protected_targets[i])) {
-            pr_emerg("[BBG] СЕКЬЮРИТИ: Заблокирована вредоносная операция (%d) на разделе: %s\n", type, name);
-            /* Вызываем панику ядра для предотвращения уничтожения данных */
-            panic("[BBG] Попытка повреждения критического раздела! Система остановлена во избежание кирпича.\n");
-        }
-    }
+    if (!strcmp(comm, "ueventd"))
+        return true;
+
+    if (!strcmp(comm, "update_engine"))
+        return true;
+
+    if (!strcmp(comm, "fastbootd"))
+        return true;
+
+    if (!strcmp(comm, "recovery"))
+        return true;
+
+    if (current->flags & PF_KTHREAD)
+        return true;
+
+    return false;
 }
 
-/* Дополнительный хук для блокировки прямой записи (dd) на уровне блочного устройства */
-int bbg_block_write_check(struct block_device *bdev, fmode_t mode) {
-    if (!bdev || !bdev->bd_disk)
+static bool bbg_match(const char *name)
+{
+    int i;
+
+    if (!name)
+        return false;
+
+    for (i = 0; i < ARRAY_SIZE(protected_targets); i++) {
+        if (strstr(name, protected_targets[i]))
+            return true;
+    }
+
+    return false;
+}
+
+int bbg_fs_check(struct dentry *dentry, int op)
+{
+    const char *name;
+
+    if (!dentry)
         return 0;
 
-    const char *disk_name = bdev->bd_disk->disk_name;
-    int i;
-    int size = sizeof(protected_targets) / sizeof(protected_targets[0]);
+    if (bbg_is_whitelisted())
+        return 0;
 
-    /* Проверяем режим записи */
-    if (mode & FMODE_WRITE) {
-        for (i = 0; i < size; i++) {
-            if (strstr(disk_name, protected_targets[i])) {
-                pr_emerg("[BBG] ПРЕДУПРЕЖДЕНИЕ: Перехвачена попытка dd/записи в %s!\n", disk_name);
-                /* Возвращаем ошибку доступа (Operation not permitted) */
-                return -EPERM; 
-            }
-        }
+    name = dentry->d_name.name;
+
+    if (!name)
+        return 0;
+
+    if (bbg_match(name)) {
+        pr_emerg("[BBG] blocked fs operation=%d target=%s pid=%d comm=%s\n",
+                 op,
+                 name,
+                 current->pid,
+                 current->comm);
+
+        return -EPERM;
     }
+
+    return 0;
+}
+
+int bbg_block_write_check(struct block_device *bdev, fmode_t mode)
+{
+    const char *disk_name;
+
+    if (!bdev)
+        return 0;
+
+    if (!bdev->bd_disk)
+        return 0;
+
+    if (bbg_is_whitelisted())
+        return 0;
+
+    if (!(mode & FMODE_WRITE))
+        return 0;
+
+    disk_name = bdev->bd_disk->disk_name;
+
+    if (!disk_name)
+        return 0;
+
+    if (bbg_match(disk_name)) {
+        pr_emerg("[BBG] blocked block write target=%s pid=%d comm=%s\n",
+                 disk_name,
+                 current->pid,
+                 current->comm);
+
+        return -EPERM;
+    }
+
     return 0;
 }
