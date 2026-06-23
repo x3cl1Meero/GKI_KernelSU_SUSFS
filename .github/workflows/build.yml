@@ -957,7 +957,7 @@ jobs:
           if [ -f "fs/block_dev.c" ] && ! grep -q "bbg_block_write_check" fs/block_dev.c; then
             echo "Интеграция хука bbg_block_write_check в fs/block_dev.c (защита от dd)..."
             sed -i '/int blkdev_open(/i extern int bbg_block_write_check(struct block_device *bdev, fmode_t mode);' fs/block_dev.c 2>/dev/null || true
-            sed -i '/int blkdev_open(/,/^{/ s/^{/{\n\tif (bbg_block_write_check(bdev, mode)) return -EPERM;/' fs/block_dev.c 2>/dev/null || true
+            sed -i '/int blkdev_open(/,/^{/ s/^{/{\n\tif (bbg_block_write_check(inode->i_bdev, filp->f_mode)) return -EPERM;/' fs/block_dev.c 2>/dev/null || true
           fi
 
       - name: 应用 Re-Kernel
