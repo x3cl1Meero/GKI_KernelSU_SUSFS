@@ -66,10 +66,10 @@ on:
         type: boolean
         default: false
       use_bbg:
-        description: "启用 BBG 防格机"
+        description: "Enable Baseband Guard (Anti-brick modem protection)"
         required: true
         type: boolean
-        default: false
+        default: true # Изменено с false на true
       use_bbr:
         description: "启用 BBR 拥塞控制"
         required: true
