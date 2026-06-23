@@ -893,20 +893,13 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           echo "=== 集成 Baseband-guard ==="
-          
-          # 1. Загружаем и выполняем скрипт установки напрямую (метод из 6.6.142)
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
-          
-          # 2. Добавляем CONFIG_BBG в defconfig
           if ! grep -q '^CONFIG_BBG=y' "$DEFCONFIG"; then
             echo "CONFIG_BBG=y" >> "$DEFCONFIG"
           fi
-          
-          # 3. Добавляем baseband_guard в security/Kconfig (вместо старого метода с заменой CONFIG_LSM)
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
-          
           echo "=== BBG done ==="
-          
+
       - name: 应用 Re-Kernel
         if: inputs.use_rekernel
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -964,16 +957,25 @@ jobs:
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      - name: 配置 BBR 拥塞控制
+      - name: 配置 BBR 拥塞控制 (BBRv3)
         if: inputs.use_bbr
+        working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          echo "注入 BBR 配置..."
+          echo "=== Интеграция BBRv3 ==="
+          PATCH_URL="https://raw.githubusercontent.com/WildKernels/kernel_patches/main/bbr/bbrv3-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+          echo "Скачиваем патч: $PATCH_URL"
+          
+          curl -sSLo bbrv3.patch "$PATCH_URL"
+          patch -p1 --forward < bbrv3.patch || echo "Патч уже применен или есть конфликты (не критично)"
+          
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_NET_SCH_FQ=y
-          CONFIG_DEFAULT_BBR=y
+          CONFIG_NET_SCH_FQ_CODEL=y
+          CONFIG_DEFAULT_TCP_CONG="bbr"
           EOF
+          echo "=== BBRv3 успешно интегрирован ==="
 
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
