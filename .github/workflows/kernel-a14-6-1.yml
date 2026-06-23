@@ -18,7 +18,7 @@ on:
           - SukiSU(40726)
           - SukiSU(40548)
           - ReSukiSU
-        default: ReSukiSU
+        default: SukiSU
       version:
         description: "自定义版本名 (可选)"
         required: false
@@ -27,7 +27,7 @@ on:
         description: "自定义构建时间 (可选，N或留空=当前UTC)"
         required: false
         type: string
-        default: "Sun Dec 01 08:10:00 UTC 2024"
+        default: ""
       use_kpm:
         description: "KPM 功能（patched 尚不支持）"
         required: true
