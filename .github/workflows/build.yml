@@ -1152,25 +1152,25 @@ jobs:
           echo "  Настройка BBG для ядра ${{ inputs.kernel_version }}"
           echo "========================================"
 
-          # 1. Динамически определяем первый аргумент VFS контекста
+          # Разделяем логику строго по версиям ядра
           if [ "${{ inputs.kernel_version }}" = "6.1" ]; then
             BBG_ARG="idmap"
+          elif [ "${{ inputs.kernel_version }}" = "5.15" ]; then
+            BBG_ARG="mnt_userns"
           else
-            # Для ядер 5.10 и 5.15 структуры idmap нет, используем mnt_user_ns
-            BBG_ARG="mnt_user_ns(path.mnt)"
+            # Для 5.10 никаких idmap и userns нет в природе, передаем пустой указатель
+            BBG_ARG="NULL"
           fi
 
           echo "Выбранный аргумент для VFS: $BBG_ARG"
 
-          # 2. Твоя логика модификации файлов (например, через sed в fs/namei.c)
           if [ -f "fs/namei.c" ]; then
             echo "Патчим fs/namei.c..."
             
-            # ПРИМЕР ЗАМЕНЫ (подставь сюда свои реальные вызовы функций BBG):
-            # Допустим, твоя функция называется bbg_check и должна вызываться перед vfs_rmdir:
-            # sed -i "s/vfs_rmdir(/bbg_check($BBG_ARG, dentry, 2);\n\tvfs_rmdir(/g" fs/namei.c
+            # Твой код замены (sed). Переменная $BBG_ARG подставит idmap, mnt_userns или NULL.
+            # Пример: sed -i "s/vfs_rmdir(/bbg_check($BBG_ARG, dentry, 2);\n\tvfs_rmdir(/g" fs/namei.c
             
-            echo "fs/namei.c успешно модифицирован под аргумент $BBG_ARG."
+            echo "fs/namei.c успешно модифицирован."
           else
             echo "::error::Файл fs/namei.c не найден!"
             exit 1
