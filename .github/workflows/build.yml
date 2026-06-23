@@ -896,7 +896,7 @@ jobs:
           echo "=== 集成 Baseband-guard ==="
           # Clone BBG repo
           rm -rf /tmp/Baseband-guard
-          git clone --depth 1 https://github.com/vc-teahouse/Baseband-guard.git /tmp/Baseband-guard
+          git clone --depth 1 https://github.com/cctv18/Baseband-guard.git /tmp/Baseband-guard
           # Run setup.sh from kernel source dir
           cd ${{ env.KERNEL_ROOT }}
           bash /tmp/Baseband-guard/setup.sh
