@@ -1167,10 +1167,14 @@ jobs:
           if [ -f "fs/namei.c" ]; then
             echo "Патчим fs/namei.c..."
             
-            # Твой код замены (sed). Переменная $BBG_ARG подставит idmap, mnt_userns или NULL.
+            # Убрано слово 'int'. Теперь это правильный вызов функции в C.
+            # Если BBG патчер ранее заменял целиком строку с vfs_rmdir,
+            # мы ставим вызов функции bbg_check и возвращаем vfs_rmdir.
             sed -i "s/vfs_rmdir(/bbg_check($BBG_ARG, dentry, 2);\n\tvfs_rmdir(/g" fs/namei.c
             
-            echo "fs/namei.c успешно модифицирован."
+            echo "=== ПРОВЕРКА ВСТАВКИ КОДА ==="
+            grep -B 3 -A 3 "bbg_check" fs/namei.c || true
+            echo "============================="
           else
             echo "::error::Файл fs/namei.c не найден!"
             exit 1
