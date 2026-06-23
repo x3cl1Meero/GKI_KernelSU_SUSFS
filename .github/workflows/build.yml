@@ -1152,33 +1152,35 @@ jobs:
           echo "  Настройка BBG для ядра ${{ inputs.kernel_version }}"
           echo "========================================"
 
-          # Разделяем логику строго по версиям ядра
-          if [ "${{ inputs.kernel_version }}" = "6.1" ]; then
-            BBG_ARG="idmap"
-          elif [ "${{ inputs.kernel_version }}" = "5.15" ]; then
-            BBG_ARG="mnt_userns"
-          else
-            # Для 5.10 никаких idmap и userns нет в природе, передаем пустой указатель
-            BBG_ARG="NULL"
-          fi
-
-          echo "Выбранный аргумент для VFS: $BBG_ARG"
-
-          if [ -f "fs/namei.c" ]; then
-            echo "Патчим fs/namei.c..."
-            
-            # Убрано слово 'int'. Теперь это правильный вызов функции в C.
-            # Если BBG патчер ранее заменял целиком строку с vfs_rmdir,
-            # мы ставим вызов функции bbg_check и возвращаем vfs_rmdir.
-            sed -i "s/vfs_rmdir(/bbg_check($BBG_ARG, dentry, 2);\n\tvfs_rmdir(/g" fs/namei.c
-            
-            echo "=== ПРОВЕРКА ВСТАВКИ КОДА ==="
-            grep -B 3 -A 3 "bbg_check" fs/namei.c || true
-            echo "============================="
-          else
+          if [ ! -f "fs/namei.c" ]; then
             echo "::error::Файл fs/namei.c не найден!"
             exit 1
           fi
+
+          echo "Патчим fs/namei.c строго внутри определения vfs_rmdir..."
+          
+          case "${{ inputs.kernel_version }}" in
+            "6.1")
+              # В 6.1 используется struct mnt_idmap *idmap
+              sed -i '/int vfs_rmdir(struct mnt_idmap \*idmap/,/^{/ s/^{/{\n\tbbg_check(idmap, dentry, 2);/' fs/namei.c
+              ;;
+            "5.15")
+              # В 5.15 используется struct user_namespace *mnt_userns
+              sed -i '/int vfs_rmdir(struct user_namespace \*mnt_userns/,/^{/ s/^{/{\n\tbbg_check(mnt_userns, dentry, 2);/' fs/namei.c
+              ;;
+            "5.10")
+              # В 5.10 namespace еще нет в vfs_rmdir, передаем NULL
+              sed -i '/int vfs_rmdir(struct inode \*dir/,/^{/ s/^{/{\n\tbbg_check(NULL, dentry, 2);/' fs/namei.c
+              ;;
+            *)
+              echo "::warning::Версия ядра ${{ inputs.kernel_version }} не адаптирована под автоматический BBG патч!"
+              exit 1
+              ;;
+          esac
+
+          echo "=== ПРОВЕРКА ВСТАВКИ КОДА ==="
+          grep -B 2 -A 6 "bbg_check" fs/namei.c || true
+          echo "============================="
       - name: 应用 Re-Kernel
         if: inputs.use_rekernel
         working-directory: ${{ env.KERNEL_ROOT }}
