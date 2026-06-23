@@ -1168,7 +1168,7 @@ jobs:
             echo "Патчим fs/namei.c..."
             
             # Твой код замены (sed). Переменная $BBG_ARG подставит idmap, mnt_userns или NULL.
-            # Пример: sed -i "s/vfs_rmdir(/bbg_check($BBG_ARG, dentry, 2);\n\tvfs_rmdir(/g" fs/namei.c
+            sed -i "s/vfs_rmdir(/bbg_check($BBG_ARG, dentry, 2);\n\tvfs_rmdir(/g" fs/namei.c
             
             echo "fs/namei.c успешно модифицирован."
           else
