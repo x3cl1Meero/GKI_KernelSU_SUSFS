@@ -1056,6 +1056,7 @@ jobs:
 
             sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
             sed -i '/^MODULES_ORDER=/d' ./common/build.config.gki.aarch64
+            sed -i 's/KMI_ENFORCED=1/KMI_ENFORCED=0/g' ./common/build.config.gki.aarch64
 
             if [ -f "build/build.sh" ]; then
               LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
