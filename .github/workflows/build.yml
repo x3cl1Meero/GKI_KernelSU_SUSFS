@@ -1169,7 +1169,9 @@ jobs:
               sed -i '/int vfs_rmdir(struct user_namespace \*mnt_userns/,/^{/ s/^{/{\n\tbbg_check(mnt_userns, dentry, 2);/' fs/namei.c
               ;;
            "5.10")
-            sed -i '1i extern void bbg_check(void *mnt, struct dentry *dentry, int type);' fs/namei.c
+           # 1. Объявляем функцию прямо перед vfs_rmdir. К этому моменту компилятор уже знает, что такое struct dentry.
+            sed -i '/int vfs_rmdir(struct inode \*dir/i extern void bbg_check(void *mnt, struct dentry *dentry, int type);' fs/namei.c
+      
             sed -i '/int error = may_delete(dir, dentry, 1);/a \	bbg_check(NULL, dentry, 2);' fs/namei.c
             ;;
             *)
