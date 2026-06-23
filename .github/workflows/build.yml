@@ -48,6 +48,10 @@ on:
         required: true
         type: boolean
         default: true
+      use_bbr:
+        required: false
+        type: boolean
+        default: true
       use_kpm:
         required: true
         type: string
@@ -103,6 +107,7 @@ jobs:
           echo "SUSFS 状态    : ${{ inputs.enable_susfs }}"
           echo "ZRAM 增强     : ${{ inputs.use_zram }}"
           echo "BBG 补丁      : ${{ inputs.use_bbg }}"
+          echo "BBR 增强      : ${{ inputs.use_bbr }}"
           echo "KPM 功能      : ${{ inputs.use_kpm }}"
           echo "Re-Kernel     : ${{ inputs.use_rekernel }}"
           echo "Droidspaces   : ${{ inputs.droidspaces }}"
@@ -1247,6 +1252,22 @@ jobs:
           fi
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
+
+      - name: 配置 BBR 拥塞控制
+        if: inputs.use_bbr
+        run: |
+          echo "注入 BBR 配置..."
+          cat >> "$DEFCONFIG" << 'EOF'
+
+          # === BBR Config ===
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_TCP_CONG_BIC=n
+          CONFIG_TCP_CONG_WESTWOOD=n
+          CONFIG_TCP_CONG_HTCP=n
+          CONFIG_DEFAULT_BBR=y
+          EOF
 
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
