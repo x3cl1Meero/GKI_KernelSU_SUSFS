@@ -890,30 +890,23 @@ jobs:
 
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
+        working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          cd ${{ env.KERNEL_ROOT }}/common
-          WS="${{ github.workspace }}"
           echo "=== 集成 Baseband-guard ==="
-          # Clone BBG repo
-          rm -rf /tmp/Baseband-guard
-          git clone --depth 1 https://github.com/cctv18/Baseband-guard.git /tmp/Baseband-guard
-          # Run setup.sh from kernel source dir
-          cd ${{ env.KERNEL_ROOT }}
-          bash /tmp/Baseband-guard/setup.sh
-          cd common
-          # Add config options
+          
+          # 1. Загружаем и выполняем скрипт установки напрямую (метод из 6.6.142)
+          curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          
+          # 2. Добавляем CONFIG_BBG в defconfig
           if ! grep -q '^CONFIG_BBG=y' "$DEFCONFIG"; then
             echo "CONFIG_BBG=y" >> "$DEFCONFIG"
           fi
-          if ! grep -q 'baseband_guard' "$DEFCONFIG"; then
-            if grep -q '^CONFIG_LSM=' "$DEFCONFIG"; then
-              sed -i 's/^CONFIG_LSM="\([^"]*\)"/CONFIG_LSM="\1,baseband_guard"/' "$DEFCONFIG"
-            else
-              echo 'CONFIG_LSM="selinux,baseband_guard"' >> "$DEFCONFIG"
-            fi
-          fi
+          
+          # 3. Добавляем baseband_guard в security/Kconfig (вместо старого метода с заменой CONFIG_LSM)
+          sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+          
           echo "=== BBG done ==="
-
+          
       - name: 应用 Re-Kernel
         if: inputs.use_rekernel
         working-directory: ${{ env.KERNEL_ROOT }}
