@@ -957,26 +957,49 @@ jobs:
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      - name: 配置 BBR 拥塞控制 (BBRv3)
+      - name: 配置 BBR 拥塞控制
         if: inputs.use_bbr
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          echo "=== Интеграция BBRv3 ==="
-          PATCH_URL="https://raw.githubusercontent.com/WildKernels/kernel_patches/main/bbr/bbrv3-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
-          echo "Скачиваем патч: $PATCH_URL"
-          
-          curl -sSLo bbrv3.patch "$PATCH_URL"
-          patch -p1 --forward < bbrv3.patch || echo "Патч уже применен или есть конфликты (не критично)"
-          
-          cat >> "$DEFCONFIG" << 'EOF'
+          if [ "${{ inputs.kernel_version }}" == "6.1" ]; then
+            echo "=== Интеграция BBRv3 (для 6.1) ==="
+            PATCH_URL="https://raw.githubusercontent.com/WildKernels/kernel_patches/main/bbr/bbrv3-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+            curl -sSLo bbrv3.patch "$PATCH_URL"
+            # Убрали || echo, чтобы сборка падала сразу, если патч кривой
+            patch -p1 --forward < bbrv3.patch
+            
+            cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_NET_SCH_FQ=y
           CONFIG_NET_SCH_FQ_CODEL=y
           CONFIG_DEFAULT_BBR=y
           EOF
-          echo "=== BBRv3 успешно интегрирован ==="
-
+          
+          else
+            echo "=== Интеграция BBRplus (для 5.10 и 5.15) ==="
+            curl -sSLo net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/Steambot12/Templar-Kernel-GKI-5.10/Templar-LinuxStable/net/ipv4/tcp_bbrplus.c"
+            
+            if ! grep -q "tcp_bbrplus.o" net/ipv4/Makefile; then
+              sed -i '/obj-$(CONFIG_TCP_CONG_BBR)/a obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' net/ipv4/Makefile
+            fi
+            
+            if ! grep -q "TCP_CONG_BBRPLUS" net/ipv4/Kconfig; then
+              sed -i '/config TCP_CONG_BBR$/i \
+          config TCP_CONG_BBRPLUS\n\
+          \ttristate "BBRplus TCP congestion control"\n\
+          \tdefault y\n' net/ipv4/Kconfig
+            fi
+            
+            cat >> "$DEFCONFIG" << 'EOF'
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_TCP_CONG_BBRPLUS=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_NET_SCH_FQ_CODEL=y
+          CONFIG_DEFAULT_TCP_CONG="bbrplus"
+          EOF
+          fi
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
