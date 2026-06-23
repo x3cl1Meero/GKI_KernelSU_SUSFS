@@ -1412,26 +1412,50 @@ jobs:
             echo "当前 SUSFS 最新提交日期: ${SUSFS_LATEST_COMMIT_DATE}"
             echo "如果日期不同或相差过远则补丁失效、编译失败"
 
-      # - name: 应用 KPM 补丁 (SukiSU/ReSukiSU/Next)
-      #   if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
-      #   run: |
-      #     case "${{ inputs.android_version }}" in
-      #       "android12"|"android13")
-      #         if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
-      #           TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-      #         fi
-      #         ;;
-      #       "android14"|"android15"|"android16")
-      #         TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
-      #         ;;
-      #     esac
+      - name: 应用 KPM 补丁 (SukiSU/ReSukiSU/Next)
+        if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
+        run: |
+          echo "=== 开始修补 Image 文件 (KPM) ==="
+          case "${{ inputs.android_version }}" in
+            "android12"|"android13")
+              if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
+                TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+              fi
+              ;;
+            "android14"|"android15"|"android16")
+              TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+              ;;
+          esac
 
-      #     cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
-      #     cd "$TARGET_PATH"
-      #     chmod 777 patch
-      #     ./patch
-      #     rm -rf Image
-      #     mv oImage Image
+          if [ -d "$TARGET_PATH" ]; then
+            cd "$TARGET_PATH"
+            
+            # Копируем патчер из клонированного репозитория SukiSU_patch
+            if [ -f "$SUKISU_PATCHES/kpm/patch_linux" ]; then
+              cp "$SUKISU_PATCHES/kpm/patch_linux" ./patch
+            else
+              # На всякий случай скачиваем напрямую, если в репозитории его не оказалось
+              echo "::warning::本地未找到 KPM 补丁工具，正在尝试在线下载..."
+              curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/main/kpm/patch_linux" -o patch
+            fi
+            
+            chmod +x patch
+            echo "执行 KPM 补丁程序..."
+            ./patch
+            
+            # Проверяем, успешно ли создался пропатченный образ (oImage)
+            if [ -f "oImage" ]; then
+              rm -f Image
+              mv oImage Image
+              echo "✅ KPM 补丁应用成功！"
+            else
+              echo "::error::KPM 补丁失败：未生成 oImage 文件"
+              exit 1
+            fi
+          else
+            echo "::error::找不到编译产物目录: $TARGET_PATH"
+            exit 1
+          fi
 
       - name: 准备 Boot 镜像
         run: |
