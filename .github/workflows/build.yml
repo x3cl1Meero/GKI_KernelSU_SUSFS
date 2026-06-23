@@ -920,9 +920,9 @@ jobs:
           fi
           if ! grep -q 'baseband_guard' "$DEFCONFIG"; then
             if grep -q '^CONFIG_LSM=' "$DEFCONFIG"; then
-              sed -i 's/^CONFIG_LSM=.*/&,baseband_guard/' "$DEFCONFIG"
+              sed -i 's/^CONFIG_LSM="\([^"]*\)"/CONFIG_LSM="\1,baseband_guard"/' "$DEFCONFIG"
             else
-              echo 'CONFIG_LSM=selinux,baseband_guard' >> "$DEFCONFIG"
+              echo 'CONFIG_LSM="selinux,baseband_guard"' >> "$DEFCONFIG"
             fi
           fi
           echo "=== BBG done ==="
