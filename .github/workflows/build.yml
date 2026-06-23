@@ -996,6 +996,24 @@ jobs:
           CONFIG_DEFAULT_BBR=y
           EOF
 
+      - name: 更新模块列表
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          GKI_MODULES="android/gki_aarch64_modules"
+          if [ -f "$GKI_MODULES" ]; then
+            echo "=== 更新 GKI 模块列表 ==="
+            for mod in net/ipv4/tcp_westwood.ko net/ipv4/tcp_htcp.ko net/ipv4/tcp_bbr.ko net/ipv4/tcp_nv.ko net/ipv4/tcp_vegas.ko net/ipv4/tcp_veno.ko net/ipv4/tcp_scalable.ko net/ipv4/tcp_yeah.ko net/ipv4/tcp_illinois.ko net/ipv4/tcp_hybla.ko net/ipv4/tcp_dctcp.ko; do
+              if ! grep -qF "$mod" "$GKI_MODULES"; then
+                echo "$mod" >> "$GKI_MODULES"
+                echo "  添加: $mod"
+              fi
+            done
+            echo "模块列表已更新"
+            echo "==========================="
+          else
+            echo "未找到 $GKI_MODULES，跳过"
+          fi
+
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
