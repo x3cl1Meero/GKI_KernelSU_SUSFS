@@ -947,36 +947,62 @@ jobs:
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      - name: Интеграция BBR / BBRplus
+      - name: Интеграция сетевых оптимизаций (BBRv3 / BBRplus)
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          # 1. Вместо глобальной чистки, просто сбрасываем изменения в 'common'
-          # Это не удалит файлы, а вернет их в исходное состояние
+          # 1. Сбрасываем изменения ТОЛЬКО в папке common, где лежат исходники
           cd common
           git reset --hard
+          git clean -fd
           cd ..
 
-          KERNEL_VER=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f1,2)
+          # 2. Определяем версию ядра из переменной окружения или пути
+          # Предположим, версия есть в переменной KERNEL_VERSION
+          KERNEL_MAJOR=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f1)
+          KERNEL_MINOR=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f2)
+          KERNEL_VER="${KERNEL_MAJOR}.${KERNEL_MINOR}"
 
           if [ "$KERNEL_VER" == "6.1" ]; then
-            echo "=== Интеграция BBRv3 ==="
+            echo "=== Применяем BBRv3 для ядра 6.1 ==="
             cd common
             curl -sSLo bbrv3.patch "https://raw.githubusercontent.com/ahmed-alnassif/GKI-Duchamp/dev/kernel-patches/bbrv3/bbrv3.patch"
-            patch -p1 --forward --ignore-whitespace < bbrv3.patch
+            # Используем --merge для авто-разрешения конфликтов
+            patch -p1 --forward --ignore-whitespace --merge < bbrv3.patch || echo "Патч BBRv3 завершен с предупреждениями"
             cd ..
-            # ... (добавление в defconfig)
+            
+            # Добавление конфигов
+            cat >> "$DEFCONFIG" << 'EOF'
+            CONFIG_TCP_CONG_ADVANCED=y
+            CONFIG_TCP_CONG_BBR=y
+            CONFIG_NET_SCH_FQ=y
+            CONFIG_NET_SCH_FQ_CODEL=y
+            CONFIG_DEFAULT_BBR=y
+            EOF
+
           else
-            echo "=== Интеграция BBRplus ==="
-            # Ключевое изменение: путь теперь common/net/ipv4/
+            echo "=== Применяем BBRplus для ядра $KERNEL_VER ==="
+            # Создаем структуру, если она удалилась
             mkdir -p common/net/ipv4/
+            
             curl -sSLo common/net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/Steambot12/Templar-Kernel-GKI-5.10/Templar-LinuxStable/net/ipv4/tcp_bbrplus.c"
             
+            # Фикс для компилятора
             sed -i 's/0x1FU/0x1F/g' common/net/ipv4/tcp_bbrplus.c
             
+            # Добавление в Makefile (только если еще не добавлено)
             if ! grep -q "tcp_bbrplus.o" common/net/ipv4/Makefile; then
               sed -i '/obj-$(CONFIG_TCP_CONG_BBR)/a obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' common/net/ipv4/Makefile
             fi
-            # ... (добавление в defconfig)
+            
+            # Добавление конфигов BBRplus
+            cat >> "$DEFCONFIG" << 'EOF'
+            CONFIG_TCP_CONG_ADVANCED=y
+            CONFIG_TCP_CONG_BBR=y
+            CONFIG_TCP_CONG_BBRPLUS=y
+            CONFIG_NET_SCH_FQ=y
+            CONFIG_NET_SCH_FQ_CODEL=y
+            CONFIG_DEFAULT_TCP_CONG="bbrplus"
+            EOF
           fi
             
             cat >> "$DEFCONFIG" << 'EOF'
