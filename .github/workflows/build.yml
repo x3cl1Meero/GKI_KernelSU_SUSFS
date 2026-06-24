@@ -607,8 +607,6 @@ jobs:
               sed -i '/^[[:space:]]*\/\*$/,/^[[:space:]]*u32 mask = mark->mask & IN_ALL_EVENTS;$/d' fs/notify/fdinfo.c
               perl -i -pe 's/\bmask,\s*mark->ignored_mask/inotify_mark_user_mask(mark)/g' fs/notify/fdinfo.c
               perl -i -pe 's/ignored_mask:%x/ignored_mask:0/g' fs/notify/fdinfo.c
-              sed -i 's|i_uid_into_mnt(i_user_ns(&fi->inode), &fi->inode).val|i_uid_into_mnt(\&init_user_ns, \&fi->inode).val|g' fs/susfs.c
-              sed -i 's|i_uid_into_mnt(i_user_ns(inode), inode).val|i_uid_into_mnt(\&init_user_ns, inode).val|g' fs/susfs.c
             fi
           fi
 
@@ -866,32 +864,49 @@ jobs:
             echo "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" >> "fs/f2fs/Makefile"
           fi
 
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/include/linux/* ./include/linux/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/lib/* ./lib/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/crypto/* ./crypto/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k_oplus ./lib/
+      - name: 配置 ZRAM 选项
+        if: inputs.use_zram
+        run: |
+          CONFIG_FILE="$DEFCONFIG"
 
-          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4kd.patch ./
-          if ! patch -p1 -F 3 < lz4kd.patch; then
-            echo "::warning::lz4kd.patch 应用失败，可能已应用或上下文不匹配"
+          if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
+            cat >> "$CONFIG_FILE" <<'EOF'
+          CONFIG_ZSMALLOC=y
+          CONFIG_ZRAM=y
+          CONFIG_MODULE_SIG=n
+          CONFIG_CRYPTO_LZO=y
+          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
+          EOF
           fi
 
-          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch ./
-          if ! patch -p1 -F 3 < lz4k_oplus.patch; then
-            echo "::warning::lz4k_oplus.patch 应用失败，可能已应用或上下文不匹配"
+          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
+            if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
+              sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
+            else
+              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+            fi
+            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
           fi
+
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
           echo "=== 集成 Baseband-guard ==="
+          
+          # 1. Загружаем и выполняем скрипт установки напрямую (метод из 6.6.142)
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          
+          # 2. Добавляем CONFIG_BBG в defconfig
           if ! grep -q '^CONFIG_BBG=y' "$DEFCONFIG"; then
             echo "CONFIG_BBG=y" >> "$DEFCONFIG"
           fi
+          
+          # 3. Добавляем baseband_guard в security/Kconfig (вместо старого метода с заменой CONFIG_LSM)
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+          
           echo "=== BBG done ==="
-
+          
       - name: 应用 Re-Kernel
         if: inputs.use_rekernel
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -946,59 +961,19 @@ jobs:
               echo "CONFIG_KPM=y" >> "$DEFCONFIG"
             fi
           fi
-          
-          # Жесткое отключение check_defconfig из конфигурационных файлов
-          sed -i 's/check_defconfig//g' ./common/build.config.gki* || true
-          sed -i 's/POST_DEFCONFIG_CMDS="check_defconfig"/POST_DEFCONFIG_CMDS=""/g' ./common/build.config.gki* || true
 
-      - name: Интеграция сетевых оптимизаций (BBRv3 / BBRplus)
-        working-directory: ${{ env.KERNEL_ROOT }}
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+
+      - name: 配置 BBR 拥塞控制
+        if: inputs.use_bbr
         run: |
-          # 1. Сбрасываем изменения ТОЛЬКО в папке common, где лежат исходники
-          cd common
-          git reset --hard
-          git clean -fd
-          cd ..
-
-          KERNEL_MAJOR=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f1)
-          KERNEL_MINOR=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f2)
-          KERNEL_VER="${KERNEL_MAJOR}.${KERNEL_MINOR}"
-
-          if [ "$KERNEL_VER" == "6.1" ]; then
-            echo "=== Применяем BBRv3 для ядра 6.1 ==="
-            cd common
-            curl -sSLo bbrv3.patch "https://raw.githubusercontent.com/ahmed-alnassif/GKI-Duchamp/dev/kernel-patches/bbrv3/bbrv3.patch"
-            patch -p1 --forward --ignore-whitespace --merge < bbrv3.patch || echo "Патч BBRv3 завершен с предупреждениями"
-            cd ..
-            
-            cat >> "$DEFCONFIG" << 'EOF'
-            CONFIG_TCP_CONG_ADVANCED=y
-            CONFIG_TCP_CONG_BBR=y
-            CONFIG_NET_SCH_FQ=y
-            CONFIG_NET_SCH_FQ_CODEL=y
-            CONFIG_DEFAULT_BBR=y
-            EOF
-
-          else
-            echo "=== Применяем BBRplus для ядра $KERNEL_VER ==="
-            mkdir -p common/net/ipv4/
-            
-            curl -sSLo common/net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/Steambot12/Templar-Kernel-GKI-5.10/Templar-LinuxStable/net/ipv4/tcp_bbrplus.c"
-            sed -i 's/0x1FU/0x1F/g' common/net/ipv4/tcp_bbrplus.c
-            
-            if ! grep -q "tcp_bbrplus.o" common/net/ipv4/Makefile; then
-              sed -i '/obj-$(CONFIG_TCP_CONG_BBR)/a obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' common/net/ipv4/Makefile
-            fi
-            
-            cat >> "$DEFCONFIG" << 'EOF'
-            CONFIG_TCP_CONG_ADVANCED=y
-            CONFIG_TCP_CONG_BBR=y
-            CONFIG_TCP_CONG_BBRPLUS=y
-            CONFIG_NET_SCH_FQ=y
-            CONFIG_NET_SCH_FQ_CODEL=y
-            CONFIG_DEFAULT_TCP_CONG="bbrplus"
-            EOF
-          fi
+          echo "注入 BBR 配置..."
+          cat >> "$DEFCONFIG" << 'EOF'
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_DEFAULT_BBR=y
+          EOF
 
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
@@ -1029,12 +1004,6 @@ jobs:
           fi
           echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> "$GITHUB_ENV"
           echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
-          
-      - name: Исправление module_outs для Bazel
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          echo "Добавляем TCP модули в Bazel..."
-          sed -i 's/module_outs = /module_outs = ["net\/ipv4\/tcp_bic.ko", "net\/ipv4\/tcp_htcp.ko", "net\/ipv4\/tcp_westwood.ko"] + /g' common/BUILD.bazel || true
 
       - name: 编译内核
         uses: nick-fields/retry@v4
@@ -1045,26 +1014,14 @@ jobs:
           command: |
             set -ex
             cd "$KERNEL_ROOT"
-            
-            # --- БЛОК ЖЕСТКОГО ОТКЛЮЧЕНИЯ ПРОВЕРОК GKI ---
-            # Отключаем check_defconfig прямо в исходниках сборочного скрипта
-            if [ -f "build/build.sh" ]; then
-              sed -i 's/eval check_defconfig/echo "Skipping check_defconfig"/g' build/build.sh || true
-              sed -i 's/set -e/set -e\nSKIP_DEFCONFIG_CHECK=1/g' build/build.sh || true
-            fi
-            
-            sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/g' ./common/build.config.gki.aarch64 || true
-            sed -i '/^MODULES_ORDER=/d' ./common/build.config.gki.aarch64 || true
-            sed -i 's/KMI_ENFORCED=1/KMI_ENFORCED=0/g' ./common/build.config.gki.aarch64 || true
-            sed -i 's/check_defconfig//g' ./common/build.config.gki* || true
-            sed -i 's/POST_DEFCONFIG_CMDS="check_defconfig"/POST_DEFCONFIG_CMDS=""/g' ./common/build.config.gki* || true
-            
+            # Disable ALL GKI-specific checks for custom kernel builds
+            sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
+            sed -i '/^MODULES_ORDER=/d' ./common/build.config.gki.aarch64
+            sed -i 's/KMI_ENFORCED=1/KMI_ENFORCED=0/g' ./common/build.config.gki.aarch64
             # Remove ABI check by patching compare_to_symbol_list to always pass
             if [ -f "build/abi/compare_to_symbol_list" ]; then
-              sed -i 's/exit 1/exit 0/g' build/abi/compare_to_symbol_list || true
+              sed -i 's/exit 1/exit 0/g' build/abi/compare_to_symbol_list
             fi
-            
-            # Запуск компиляции
             if [ -f "build/build.sh" ]; then
               LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
             else
