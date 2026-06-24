@@ -1034,7 +1034,7 @@ jobs:
 
           # ── Конфиг-флаги ───────────────────────────────────────────────
           echo "Инжектируем конфиг-флаги BBR..."
-          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
+          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\nCONFIG_TCP_CONG_WESTWOOD=n\nCONFIG_TCP_CONG_HTCP=n\nCONFIG_TCP_CONG_BIC=n\n' >> "$DEFCONFIG"
 
           # BBRplus: регистрирует отдельный алгоритм 'bbrplus'
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
