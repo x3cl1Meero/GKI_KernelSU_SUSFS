@@ -723,9 +723,6 @@ jobs:
           git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git /tmp/Droidspaces-OSS
           echo "DROIDSPACES_PATCHES=/tmp/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI" >> $GITHUB_ENV
 
-      - name: 备份基准 defconfig
-        run: cp "$DEFCONFIG" "$DEFCONFIG.orig"
-
       - name: 集成 Droidspaces 支持
         if: inputs.droidspaces != 'off'
         working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -849,6 +846,27 @@ jobs:
             echo "CONFIG_NTSYNC=y" >> "$CONFIG_PATH"
           fi
 
+      - name: 配置 ZRAM 选项
+        if: inputs.use_zram
+        run: |
+          CONFIG_FILE="$DEFCONFIG"
+
+          if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
+            cat >> "$CONFIG_FILE" <<'EOF'
+          CONFIG_ZSMALLOC=y
+          CONFIG_ZRAM=y
+          CONFIG_MODULE_SIG=n
+          CONFIG_CRYPTO_LZO=y
+          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
+          EOF
+          else
+            cat >> "$CONFIG_FILE" <<'EOF'
+          CONFIG_CRYPTO_LZ4=y
+          CONFIG_CRYPTO_LZ4HC=y
+          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
+          EOF
+          fi
+
       - name: 配置 ZRAM LZ4 补丁栈
         if: inputs.use_zram
         working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -878,6 +896,7 @@ jobs:
           if ! patch -p1 -F 3 < lz4k_oplus.patch; then
             echo "::warning::lz4k_oplus.patch 应用失败，可能已应用或上下文不匹配"
           fi
+
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
         working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -947,63 +966,49 @@ jobs:
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-      - name: Интеграция сетевых оптимизаций (BBRv3 / BBRplus)
+      - name: 准备 defconfig (Fix .orig)
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          # 1. Сбрасываем изменения ТОЛЬКО в папке common, где лежат исходники
+          if [ ! -f "$DEFCONFIG.orig" ]; then
+            cp "$DEFCONFIG" "$DEFCONFIG.orig"
+          fi
+
+      - name: Интеграция сетевых оптимизаций (BBRv3 / BBRplus)
+        working-directory: ${{ env.KERNEL_ROOT }}
+        if: inputs.use_bbr
+        run: |
           cd common
           git reset --hard
-          git clean -fd
           cd ..
 
-          # 2. Определяем версию ядра из переменной окружения или пути
-          # Предположим, версия есть в переменной KERNEL_VERSION
-          KERNEL_MAJOR=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f1)
-          KERNEL_MINOR=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f2)
-          KERNEL_VER="${KERNEL_MAJOR}.${KERNEL_MINOR}"
+          KERNEL_VER=$(echo "${{ inputs.kernel_version }}" | cut -d'.' -f1,2)
 
           if [ "$KERNEL_VER" == "6.1" ]; then
-            echo "=== Применяем BBRv3 для ядра 6.1 ==="
+            echo "=== Интеграция BBRv3 для ядра 6.1 ==="
             cd common
             curl -sSLo bbrv3.patch "https://raw.githubusercontent.com/ahmed-alnassif/GKI-Duchamp/dev/kernel-patches/bbrv3/bbrv3.patch"
-            # Используем --merge для авто-разрешения конфликтов
-            patch -p1 --forward --ignore-whitespace --merge < bbrv3.patch || echo "Патч BBRv3 завершен с предупреждениями"
+            patch -p1 --forward --ignore-whitespace --merge < bbrv3.patch || echo "Патч завершен с конфликтами, продолжаем..."
             cd ..
             
-            # Добавление конфигов
             cat >> "$DEFCONFIG" << 'EOF'
-            CONFIG_TCP_CONG_ADVANCED=y
-            CONFIG_TCP_CONG_BBR=y
-            CONFIG_NET_SCH_FQ=y
-            CONFIG_NET_SCH_FQ_CODEL=y
-            CONFIG_DEFAULT_BBR=y
-            EOF
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_NET_SCH_FQ_CODEL=y
+          CONFIG_DEFAULT_BBR=y
+          EOF
 
           else
-            echo "=== Применяем BBRplus для ядра $KERNEL_VER ==="
-            # Создаем структуру, если она удалилась
+            echo "=== Интеграция BBRplus для ядра $KERNEL_VER ==="
             mkdir -p common/net/ipv4/
             
             curl -sSLo common/net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/Steambot12/Templar-Kernel-GKI-5.10/Templar-LinuxStable/net/ipv4/tcp_bbrplus.c"
             
-            # Фикс для компилятора
             sed -i 's/0x1FU/0x1F/g' common/net/ipv4/tcp_bbrplus.c
             
-            # Добавление в Makefile (только если еще не добавлено)
             if ! grep -q "tcp_bbrplus.o" common/net/ipv4/Makefile; then
               sed -i '/obj-$(CONFIG_TCP_CONG_BBR)/a obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' common/net/ipv4/Makefile
             fi
-            
-            # Добавление конфигов BBRplus
-            cat >> "$DEFCONFIG" << 'EOF'
-            CONFIG_TCP_CONG_ADVANCED=y
-            CONFIG_TCP_CONG_BBR=y
-            CONFIG_TCP_CONG_BBRPLUS=y
-            CONFIG_NET_SCH_FQ=y
-            CONFIG_NET_SCH_FQ_CODEL=y
-            CONFIG_DEFAULT_TCP_CONG="bbrplus"
-            EOF
-          fi
             
             cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_TCP_CONG_ADVANCED=y
@@ -1014,6 +1019,27 @@ jobs:
           CONFIG_DEFAULT_TCP_CONG="bbrplus"
           EOF
           fi
+
+      - name: Добавление TCP модулей в Bazel
+        working-directory: ${{ env.KERNEL_ROOT }}
+        if: inputs.use_bbr
+        run: |
+          echo "Добавляем TCP модули в Bazel..."
+          
+          # Проверяем оба варианта пути (для 6.1 и старых версий)
+          cd common
+          if [ -f "BUILD.bazel" ]; then
+              TARGET="BUILD.bazel"
+          elif [ -f "BUILD" ]; then
+              TARGET="BUILD"
+          else
+              echo "ВНИМАНИЕ: Файл конфигурации Bazel не найден! Пропускаем..."
+              exit 0
+          fi
+          
+          # Безопасное добавление файлов через объединение массивов [...] + 
+          sed -i 's/module_outs = /module_outs = ["net\/ipv4\/tcp_bic.ko", "net\/ipv4\/tcp_htcp.ko", "net\/ipv4\/tcp_westwood.ko"] + /g' "$TARGET"
+
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
@@ -1043,12 +1069,6 @@ jobs:
           fi
           echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> "$GITHUB_ENV"
           echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
-      - name: Исправление module_outs для Bazel
-        working-directory: ${{ env.KERNEL_ROOT }}
-        run: |
-          echo "Добавляем TCP модули в Bazel..."
-          # Безопасное добавление файлов через объединение массивов [...] + 
-          sed -i 's/module_outs = /module_outs = ["net\/ipv4\/tcp_bic.ko", "net\/ipv4\/tcp_htcp.ko", "net\/ipv4\/tcp_westwood.ko"] + /g' common/BUILD.bazel
 
       - name: 编译内核
         uses: nick-fields/retry@v4
