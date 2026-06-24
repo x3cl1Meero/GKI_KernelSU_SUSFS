@@ -894,8 +894,13 @@ jobs:
         run: |
           echo "=== 集成 Baseband-guard ==="
           
-          # 1. Загружаем и выполняем скрипт установки напрямую (метод из 6.6.142)
-          curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          if [ "${{ inputs.kernel_version }}" = "5.10" ] || [ "${{ inputs.kernel_version }}" = "5.15" ]; then
+            echo "Используется форк BBG для 5.10 и 5.15"
+            curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          else
+            echo "Используется оригинальный BBG для 6.1+"
+            curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          fi
           
           # 2. Добавляем CONFIG_BBG в defconfig
           if ! grep -q '^CONFIG_BBG=y' "$DEFCONFIG"; then
