@@ -645,9 +645,9 @@ jobs:
           fi
 
           if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-            if [[ "$CURRENT_SUB" -ge 58 ]]; then
-              echo "临时调整 Android 16 6.12 exec.c 上下文"
-              sed -i '/^#include <linux\/dma-buf.h>$/d' fs/exec.c
+            if [[ "$CURRENT_SUB" -ge 58 ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/exec.c; then
+              echo "临时调整 Android 16 6.12 exec.c 临时调整"
+              sed -i '0,/^#include /s//#include <linux\/dma-buf.h>\n&/' fs/exec.c
             fi
           fi
 
@@ -887,6 +887,7 @@ jobs:
             # Это предотвращает бутлуп из-за конфликта со стоковыми .ko модулями на устройстве
             echo "Ветки GKI (5.15/6.1): Оставляем ZRAM в режиме модулей (=m) для стабильной загрузки"
           fi
+
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
         working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -1122,28 +1123,39 @@ jobs:
           cp "$SRC_DIR/Image" ./
           gzip -n -k -f -9 ./Image > ./Image.gz
 
+      - name: 装配 AnyKernel3 并打包
+        run: |
+          # 1. Копируем готовое ядро внутрь папки AnyKernel3
+          cp ./Image "$ANYKERNEL3/"
+
+          # 2. Переходим в папку AnyKernel3 и упаковываем её в ZIP-архив
+          cd "$ANYKERNEL3"
+          ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
+          zip -r "../$ZIP_NAME" *
+          cd ..
 
       - name: 上传 AnyKernel3 刷入包
         if: inputs.artifact_upload_mode != '上传全部'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-AnyKernel3
-          path: AnyKernel3/*
+          name: "[UNZIP_ME_FIRST]_${{ inputs.ksu_variant }}_AnyKernel3"
+          path: ./*AnyKernel3.zip
           compression-level: 9
 
       - name: 上传全部构建产物
         if: inputs.artifact_upload_mode == '上传全部'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}
+          name: "[UNZIP_ME_FIRST]_${{ inputs.ksu_variant }}_All_Outputs"
           path: |
             *AnyKernel3.zip
             *.img
+            *.gz
           compression-level: 9
 
       - name: 上传补丁冲突文件
         if: always() && env.REJ_COUNT > 0
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-Rejects
           path: patch-rejects/
