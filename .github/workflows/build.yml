@@ -974,9 +974,6 @@ jobs:
           echo "=== BBR 变体: $BBR_VARIANT / 内核: $KERNEL_VER ==="
 
           # ── Определяем эффективный вариант ─────────────────────────────
-          # bbrv3   поддерживается только на 6.1
-          # bbrplus поддерживается только на 5.10 и 5.15
-          # Для всех остальных ядер (5.4, 6.6, ...) — используем стандартный bbr
           EFFECTIVE_VARIANT="$BBR_VARIANT"
 
           if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
@@ -991,7 +988,6 @@ jobs:
           echo "Эффективный вариант: $EFFECTIVE_VARIANT"
 
           # ── Применение патча BBRv3 (только для 6.1) ────────────────────
-          # Источник: https://github.com/ahmed-alnassif/GKI-Duchamp/blob/dev/kernel-patches/bbrv3/bbrv3.patch
           if [ "$EFFECTIVE_VARIANT" = "bbrv3" ]; then
             echo "--- Применяем патч BBRv3 для kernel 6.1 ---"
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrv3-6.1.patch"
@@ -1009,11 +1005,14 @@ jobs:
             echo "Применяем $PATCH_FILE ..."
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
             echo "--- BBRv3 патч применён ---"
+            
+            # --- ИСПРАВЛЕНИЕ ДЛЯ CLANG ---
+            # Отключаем строгое предупреждение логических операндов для tcp_bbr.o
+            echo "CFLAGS_tcp_bbr.o += -Wno-constant-logical-operand" >> net/ipv4/Makefile
+            echo "Добавлен фикс компилятора -Wno-constant-logical-operand"
           fi
 
           # ── Применение патча BBRplus (только для 5.10 / 5.15) ──────────
-          # Источник 5.10: https://github.com/UJX6N/bbrplus-5.10/blob/main/convert_official_linux-5.10.x_src_to_bbrplus.patch
-          # Источник 5.15: https://github.com/UJX6N/bbrplus-5.15/blob/main/convert_official_linux-5.15.x_src_to_bbrplus.patch
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
             echo "--- Применяем патч BBRplus для kernel $KERNEL_VER ---"
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
@@ -1032,6 +1031,17 @@ jobs:
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
             echo "--- BBRplus патч применён ---"
           fi
+
+          # ── Конфиг-флаги ───────────────────────────────────────────────
+          echo "Инжектируем конфиг-флаги BBR..."
+          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
+
+          # BBRplus: регистрирует отдельный алгоритм 'bbrplus'
+          if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
+            printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
+          fi
+
+          echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
 
           # ── Конфиг-флаги ───────────────────────────────────────────────
           echo "Инжектируем конфиг-флаги BBR..."
