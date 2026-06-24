@@ -873,25 +873,35 @@ jobs:
         run: |
           CONFIG_FILE="$DEFCONFIG"
 
+          # 1. Специфичные флаги оптимизации только для ветки 5.10
           if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
             cat >> "$CONFIG_FILE" <<'EOF'
-          CONFIG_ZSMALLOC=y
-          CONFIG_ZRAM=y
           CONFIG_MODULE_SIG=n
           CONFIG_CRYPTO_LZO=y
           CONFIG_ZRAM_DEF_COMP_LZ4KD=y
           EOF
           fi
 
-          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
-            if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
-              sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
-            else
-              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-            fi
-            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          # 2. Универсальный принудительный перевод ZRAM и ZSMALLOC в статус встроенных (=y)
+          # Это необходимо для всех веток, так как AnyKernel3 пакует только монолитный Image
+          if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
+            sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
+          else
+            echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
           fi
 
+          if grep -q "CONFIG_ZRAM" "$CONFIG_FILE"; then
+            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          else
+            echo "CONFIG_ZRAM=y" >> "$CONFIG_FILE"
+          fi
+
+          # 3. САМЫЙ УНИВЕРСАЛЬНЫЙ ОПТИМИЗАТОР ДЛЯ BAZEL (ядра 6.1, 6.6 и новые 5.15)
+          # Поскольку мы заставили ZRAM встроиться в ядро, Bazel начнет падать, не найдя файлы .ko.
+          # Этот скрипт динамически вычищает zram.ko и zsmalloc.ko из списков сборщика Bazel.
+          # На ветке 5.10 (где сборка идет через старый build.sh) этот шаг ничего не найдет и пройдет молча.
+          echo "Очистка внутренних списков модулей Bazel от zram.ko и zsmalloc.ko..."
+          find "$KERNEL_ROOT" -type f \( -name "modules.list*" -o -name "*.bzl" -o -name "*modules*" -o -name "gki_system_dlkm_*" \) -exec sed -i '/zram\.ko/d; /zsmalloc\.ko/d' {} + 2>/dev/null || true
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
         working-directory: ${{ env.KERNEL_ROOT }}/common
