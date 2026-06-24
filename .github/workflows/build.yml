@@ -877,8 +877,17 @@ jobs:
           CONFIG_CRYPTO_LZO=y
           CONFIG_ZRAM_DEF_COMP_LZ4KD=y
           EOF
+          else
+            # Для 5.15, 6.1 и новее:
+            # GKI Bazel строго ожидает, что zram.ko и zsmalloc.ko будут модулями (=m).
+            # Не меняем их на =y, чтобы не сломать сборку Bazel!
+            # Просто убеждаемся, что включены нужные алгоритмы.
+            cat >> "$CONFIG_FILE" <<'EOF'
+          CONFIG_CRYPTO_LZ4=y
+          CONFIG_CRYPTO_LZ4HC=y
+          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
+          EOF
           fi
-
           if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
             if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
               sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
