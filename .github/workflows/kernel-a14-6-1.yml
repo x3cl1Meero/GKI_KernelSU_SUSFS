@@ -146,8 +146,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - sub_level: "138"
-            os_patch_level: "2025-06"
+          - sub_level: "145"
+            os_patch_level: "2025-09"
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
