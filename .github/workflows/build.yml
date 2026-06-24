@@ -1019,6 +1019,12 @@ jobs:
           fi
           echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> "$GITHUB_ENV"
           echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
+      - name: Исправление module_outs для Bazel
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          # Добавляем недостающие модули в список модуля сборки Bazel
+          # Мы используем sed, чтобы найти блок module_outs и добавить туда новые строки
+          sed -i '/module_outs = \[/a \        "net/ipv4/tcp_bic.ko",\n        "net/ipv4/tcp_htcp.ko",\n        "net/ipv4/tcp_westwood.ko",' common/BUILD.bazel
 
       - name: 编译内核
         uses: nick-fields/retry@v4
