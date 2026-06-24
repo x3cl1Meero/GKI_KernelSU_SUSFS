@@ -204,7 +204,7 @@ jobs:
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}
-      use_bbr: ${{ inputs.use_bbr }}
+      bbr_variant: ${{ inputs.bbr_variant || 'bbrplus' }}
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel || false }}
       supp_op: false
