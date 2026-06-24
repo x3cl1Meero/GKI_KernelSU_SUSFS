@@ -48,10 +48,14 @@ on:
         required: true
         type: boolean
         default: true
-      use_bbr:
+      bbr_variant:
         required: false
-        type: boolean
-        default: true
+        type: string
+        # Допустимые значения: "disabled" | "bbr" | "bbrv3" | "bbrplus"
+        # bbrv3   — только для kernel_version 6.1  (патч net/ipv4/tcp_bbr.c из google/bbr)
+        # bbrplus — только для kernel_version 5.10 и 5.15 (патч из 0voice/bbrplus)
+        # bbr     — стандартный BBR (ядерный, без патчей) для всех версий
+        default: "bbr"
       use_kpm:
         required: true
         type: string
@@ -107,7 +111,7 @@ jobs:
           echo "SUSFS 状态    : ${{ inputs.enable_susfs }}"
           echo "ZRAM 增强     : ${{ inputs.use_zram }}"
           echo "BBG 补丁      : ${{ inputs.use_bbg }}"
-          echo "BBR 增强      : ${{ inputs.use_bbr }}"
+          echo "BBR 变体      : ${{ inputs.bbr_variant }}"
           echo "KPM 功能      : ${{ inputs.use_kpm }}"
           echo "Re-Kernel     : ${{ inputs.use_rekernel }}"
           echo "Droidspaces   : ${{ inputs.droidspaces }}"
@@ -965,15 +969,89 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: 配置 BBR 拥塞控制
-        if: inputs.use_bbr
+        if: inputs.bbr_variant != 'disabled' && inputs.bbr_variant != ''
+        working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          echo "注入 BBR 配置..."
+          set -e
+          BBR_VARIANT="${{ inputs.bbr_variant }}"
+          KERNEL_VER="${{ inputs.kernel_version }}"
+          echo "=== BBR 变体: $BBR_VARIANT / 内核: $KERNEL_VER ==="
+
+          # ── Валидация совместимости ─────────────────────────────────────
+          if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
+            echo "::error::BBRv3 поддерживается только для kernel 6.1 (текущий: $KERNEL_VER)"
+            exit 1
+          fi
+          if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ]; then
+            echo "::error::BBRplus поддерживается только для kernel 5.10 / 5.15 (текущий: $KERNEL_VER)"
+            exit 1
+          fi
+
+          # ── Применение патча BBRv3 (только для 6.1) ────────────────────
+          if [ "$BBR_VARIANT" = "bbrv3" ]; then
+            echo "--- Применяем патч BBRv3 для kernel 6.1 ---"
+            PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrv3-6.1.patch"
+            if [ ! -f "$PATCH_FILE" ]; then
+              echo "Патч не найден локально, скачиваем из репозитория google/bbr ..."
+              mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
+              # Скачиваем tcp_bbr.c из ветки v3 репозитория google/bbr
+              curl -fsSL \
+                "https://raw.githubusercontent.com/google/bbr/v3/net/ipv4/tcp_bbr.c" \
+                -o /tmp/tcp_bbr_v3.c
+              # Создаём унифицированный патч: заменяем tcp_bbr.c целиком
+              diff -u net/ipv4/tcp_bbr.c /tmp/tcp_bbr_v3.c > "$PATCH_FILE" || true
+            fi
+            if [ ! -s "$PATCH_FILE" ]; then
+              echo "::error::Патч BBRv3 пуст или не был создан. Проверьте $PATCH_FILE"
+              exit 1
+            fi
+            patch -p1 --forward < "$PATCH_FILE"
+            echo "--- BBRv3 патч применён ---"
+          fi
+
+          # ── Применение патча BBRplus (только для 5.10 / 5.15) ──────────
+          if [ "$BBR_VARIANT" = "bbrplus" ]; then
+            echo "--- Применяем патч BBRplus для kernel $KERNEL_VER ---"
+            PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
+            if [ ! -f "$PATCH_FILE" ]; then
+              echo "Патч не найден локально, скачиваем из репозитория 0voice/bbrplus ..."
+              mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
+              # Определяем тег/ветку BBRplus под версию ядра
+              case "$KERNEL_VER" in
+                5.10) BBRPLUS_BRANCH="5.10" ;;
+                5.15) BBRPLUS_BRANCH="5.15" ;;
+              esac
+              curl -fsSL \
+                "https://raw.githubusercontent.com/0voice/bbrplus/main/linux-${BBRPLUS_BRANCH}/net/ipv4/tcp_bbr.c" \
+                -o /tmp/tcp_bbrplus.c
+              diff -u net/ipv4/tcp_bbr.c /tmp/tcp_bbrplus.c > "$PATCH_FILE" || true
+            fi
+            if [ ! -s "$PATCH_FILE" ]; then
+              echo "::error::Патч BBRplus пуст или не был создан. Проверьте $PATCH_FILE"
+              exit 1
+            fi
+            patch -p1 --forward < "$PATCH_FILE"
+            echo "--- BBRplus патч применён ---"
+          fi
+
+          # ── Конфиг-флаги (общие для всех вариантов) ────────────────────
+          echo "Инжектируем конфиг-флаги BBR..."
           cat >> "$DEFCONFIG" << 'EOF'
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_NET_SCH_FQ=y
           CONFIG_DEFAULT_BBR=y
           EOF
+
+          # BBRv3: дополнительный флаг для нового планировщика (если присутствует в Kconfig)
+          if [ "$BBR_VARIANT" = "bbrv3" ]; then
+            if grep -rqs 'config TCP_CONG_BBR2' net/ipv4/; then
+              echo "CONFIG_TCP_CONG_BBR2=y" >> "$DEFCONFIG"
+              echo "  -> CONFIG_TCP_CONG_BBR2=y добавлен (BBRv3 alias)"
+            fi
+          fi
+
+          echo "=== BBR ($BBR_VARIANT) настройка завершена ==="
 
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
