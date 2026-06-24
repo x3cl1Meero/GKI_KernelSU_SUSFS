@@ -51,10 +51,6 @@ on:
       bbr_variant:
         required: false
         type: string
-        # Допустимые значения: "disabled" | "bbr" | "bbrv3" | "bbrplus"
-        # bbrv3   — только для kernel_version 6.1  (патч net/ipv4/tcp_bbr.c из google/bbr)
-        # bbrplus — только для kernel_version 5.10 и 5.15 (патч из 0voice/bbrplus)
-        # bbr     — стандартный BBR (ядерный, без патчей) для всех версий
         default: "bbr"
       use_kpm:
         required: true
@@ -427,7 +423,6 @@ jobs:
               ;;
           esac
 
-          # 检查自定义提交 (仅对 SukiSU 生效)
           CONFIG_FILE="config/config"
           if [ -f "$CONFIG_FILE" ]; then
             CUSTOM_ENABLED=$(grep "^custom=" "$CONFIG_FILE" | cut -d'=' -f2)
@@ -557,7 +552,6 @@ jobs:
             "Official")
               cd ./KernelSU
               cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-              # 兼容旧版补丁：仅当补丁仍只修改 kernel/Makefile 时，才替换为 kernel/Kbuild
               if grep -q '^diff --git a/kernel/Makefile b/kernel/Makefile' ./10_enable_susfs_for_ksu.patch \
                 && ! grep -q '^diff --git a/kernel/Kbuild b/kernel/Kbuild' ./10_enable_susfs_for_ksu.patch; then
                 sed -i 's|kernel/Makefile|kernel/Kbuild|g' ./10_enable_susfs_for_ksu.patch
@@ -853,6 +847,62 @@ jobs:
             echo "CONFIG_NTSYNC=y" >> "$CONFIG_PATH"
           fi
 
+      - name: 应用 Unicode 绕过修复
+        if: inputs.enable_susfs
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          if [ "${{ inputs.kernel_version }}" = "5.10" ] || [ "${{ inputs.kernel_version }}" = "5.15" ]; then
+            patch -p1 --forward < "$ACTION_BUILD/patches/unicode_bypass_fix_6.1-.patch" || true
+          else
+            patch -p1 --forward < "$ACTION_BUILD/patches/unicode_bypass_fix_6.1+.patch" || true
+          fi
+
+      - name: 修复 6.6 WiFi/蓝牙兼容性（三星 + 小米）
+        if: inputs.kernel_version == '6.6'
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          ensure_line_once() {
+            local file="$1"
+            local line="$2"
+            if [ ! -f "$file" ]; then
+              echo "::error::文件不存在: $file"
+              exit 1
+            fi
+            if ! grep -qF "$line" "$file"; then
+              echo "$line" >> "$file"
+            fi
+          }
+
+          GALAXY_SYMBOL_LIST="android/abi_gki_aarch64_galaxy"
+          XIAOMI_SYMBOL_LIST="android/abi_gki_aarch64_xiaomi"
+          DRIVERS_MAKEFILE="drivers/Makefile"
+          MIN_KDP_SRC="$KERNEL_PATCHES/samsung/min_kdp/min_kdp.c"
+          MIN_KDP_PATCH="$KERNEL_PATCHES/samsung/min_kdp/add-min_kdp-symbols.patch"
+          MIN_KDP_DST="drivers/min_kdp.c"
+
+          ensure_line_once "$GALAXY_SYMBOL_LIST" "kdp_set_cred_non_rcu"
+          ensure_line_once "$GALAXY_SYMBOL_LIST" "kdp_usecount_dec_and_test"
+          ensure_line_once "$GALAXY_SYMBOL_LIST" "kdp_usecount_inc"
+
+          if [ ! -f "$MIN_KDP_PATCH" ]; then
+            echo "::error::补丁不存在: $MIN_KDP_PATCH"
+            exit 1
+          fi
+          if patch -p1 --dry-run < "$MIN_KDP_PATCH" >/dev/null 2>&1; then
+            patch -p1 --no-backup-if-mismatch < "$MIN_KDP_PATCH"
+          else
+            echo "min_kdp symbols patch 已应用或当前上下文不匹配，跳过。"
+          fi
+
+          if [ ! -f "$MIN_KDP_SRC" ]; then
+            echo "::error::文件不存在: $MIN_KDP_SRC"
+            exit 1
+          fi
+          cp "$MIN_KDP_SRC" "$MIN_KDP_DST"
+          ensure_line_once "$DRIVERS_MAKEFILE" "obj-y += min_kdp.o"
+
+          ensure_line_once "$XIAOMI_SYMBOL_LIST" "device_find_any_child"
+
       - name: 配置 ZRAM LZ4 补丁栈
         if: inputs.use_zram
         working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -868,13 +918,27 @@ jobs:
             echo "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" >> "fs/f2fs/Makefile"
           fi
 
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/lib/* ./lib/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/crypto/* ./crypto/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k_oplus ./lib/
+
+          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4kd.patch ./
+          if ! patch -p1 -F 3 < lz4kd.patch; then
+            echo "::warning::lz4kd.patch 应用失败，可能已应用或上下文不匹配"
+          fi
+
+          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch ./
+          if ! patch -p1 -F 3 < lz4k_oplus.patch; then
+            echo "::warning::lz4k_oplus.patch 应用失败，可能已应用或上下文不匹配"
+          fi
+
       - name: 配置 ZRAM 选项
         if: inputs.use_zram
         run: |
           CONFIG_FILE="$DEFCONFIG"
 
           if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
-            echo "Ветка 5.10: Принудительно встраиваем ZRAM в ядро (=y)"
             cat >> "$CONFIG_FILE" <<'EOF'
           CONFIG_ZSMALLOC=y
           CONFIG_ZRAM=y
@@ -882,11 +946,30 @@ jobs:
           CONFIG_CRYPTO_LZO=y
           CONFIG_ZRAM_DEF_COMP_LZ4KD=y
           EOF
-          else
-            # Для веток 5.15, 6.1 и выше оставляем стоковые значения (=m)
-            # Это предотвращает бутлуп из-за конфликта со стоковыми .ko модулями на устройстве
-            echo "Ветки GKI (5.15/6.1): Оставляем ZRAM в режиме модулей (=m) для стабильной загрузки"
           fi
+
+          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
+            if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
+              sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
+            else
+              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+            fi
+            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          fi
+
+          if [ "${{ inputs.kernel_version }}" = "6.6" ]; then
+            echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
+            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          fi
+
+          if [ "${{ inputs.android_version }}" = "android14" ] || [ "${{ inputs.android_version }}" = "android15" ]; then
+            sed -i 's/"drivers\/block\/zram\/zram\.ko",//g; s/"mm\/zsmalloc\.ko",//g' "$KERNEL_ROOT/common/modules.bzl"
+          fi
+
+          if grep -q "CONFIG_ZSMALLOC=y" "$CONFIG_FILE" && grep -q "CONFIG_ZRAM=y" "$CONFIG_FILE"; then
+            cat "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
+          fi
+
 
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
@@ -902,12 +985,10 @@ jobs:
             curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           fi
           
-          # 2. Добавляем CONFIG_BBG в defconfig
           if ! grep -q '^CONFIG_BBG=y' "$DEFCONFIG"; then
             echo "CONFIG_BBG=y" >> "$DEFCONFIG"
           fi
           
-          # 3. Добавляем baseband_guard в security/Kconfig (вместо старого метода с заменой CONFIG_LSM)
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
           
           echo "=== BBG done ==="
@@ -1005,10 +1086,8 @@ jobs:
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
           fi
 
-          # Инжектируем конфиг-флаги BBR
           printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
           
-          # Отключаем конфликтующие модули в формате Kconfig, чтобы Bazel не ругался при BUILD_SYSTEM_DLKM=1
           printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
 
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
@@ -1016,6 +1095,7 @@ jobs:
           fi
 
           echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
+
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
@@ -1031,6 +1111,7 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
+
       - name: 配置内核名称
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
@@ -1069,6 +1150,7 @@ jobs:
               perl -i -0777 -pe 's/(.*)echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}"/$1echo "\$\{KERNELVERSION\}'"${SUFFIX}"'\$\{config_localversion\}"/s' ./scripts/setlocalversion 2>/dev/null || true
             fi
           fi
+
       - name: 设置自定义构建时间
         shell: bash
         env:
@@ -1098,7 +1180,6 @@ jobs:
           echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> "$GITHUB_ENV"
           echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
 
-          # 统一处理 mkcompile_h 补丁
           f="$KERNEL_ROOT/common/scripts/mkcompile_h"
           if [ -f "$f" ]; then
             if [[ "${{ inputs.kernel_version }}" == "5.10" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
@@ -1134,7 +1215,6 @@ jobs:
               LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
               strings "out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" | grep 'Linux version'
             else
-              # 提取 gki_defconfig 修改到 fragment，避免 bazel trim 检查失败
               FRAG="common/arch/arm64/configs/ksu.fragment"
               diff "$DEFCONFIG.orig" "$DEFCONFIG" | grep '^>' | sed 's/^> //; s/^[[:space:]]*//' > "$FRAG" || true
               cp "$DEFCONFIG.orig" "$DEFCONFIG"
@@ -1156,27 +1236,6 @@ jobs:
             echo "当前 KSU 最新提交日期: ${KSU_LATEST_COMMIT_DATE}"
             echo "当前 SUSFS 最新提交日期: ${SUSFS_LATEST_COMMIT_DATE}"
             echo "如果日期不同或相差过远则补丁失效、编译失败"
-
-      # - name: 应用 KPM 补丁 (SukiSU/ReSukiSU/Next)
-      #   if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
-      #   run: |
-      #     case "${{ inputs.android_version }}" in
-      #       "android12"|"android13")
-      #         if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
-      #           TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-      #         fi
-      #         ;;
-      #       "android14"|"android15"|"android16")
-      #         TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
-      #         ;;
-      #     esac
-
-      #     cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
-      #     cd "$TARGET_PATH"
-      #     chmod 777 patch
-      #     ./patch
-      #     rm -rf Image
-      #     mv oImage Image
 
       - name: 准备 Boot 镜像
         run: |
@@ -1200,12 +1259,20 @@ jobs:
           cd "$ANYKERNEL3"
           ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
           mv ../Image ./Image
+          
+          echo "Поиск и упаковка скомпилированных ядерных модулей (.ko)..."
+          find "$GITHUB_WORKSPACE" -name "*.ko" -type f ! -path "$ANYKERNEL3/*" -exec cp {} ./ \; 2>/dev/null || true
+          
           zip -r "../$ZIP_NAME" ./*
 
       - name: 准备 AnyKernel3 目录
         if: inputs.artifact_upload_mode != '上传全部'
         run: |
           mv ./Image "$ANYKERNEL3/Image"
+          
+          cd "$ANYKERNEL3"
+          echo "Поиск и подготовка ядерных модулей (.ko)..."
+          find "$GITHUB_WORKSPACE" -name "*.ko" -type f ! -path "$ANYKERNEL3/*" -exec cp {} ./ \; 2>/dev/null || true
 
       - name: 构建 Boot 镜像 (Android 12)
         if: inputs.android_version == 'android12'
