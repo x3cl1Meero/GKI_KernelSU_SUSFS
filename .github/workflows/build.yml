@@ -1085,35 +1085,29 @@ jobs:
           cp "$SRC_DIR/Image" ./
           gzip -n -k -f -9 ./Image > ./Image.gz
 
-      - name: 装配 AnyKernel3 并打包
-        run: |
-          cp ./Image "$ANYKERNEL3/"
-
       - name: 上传 AnyKernel3 刷入包
         if: inputs.artifact_upload_mode != '上传全部'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          # GitHub автоматически добавит .zip к этому имени при скачивании
-          name: "${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.ksu_variant }}-AnyKernel3"
-          path: AnyKernel3/
+          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-AnyKernel3
+          path: AnyKernel3/*
           compression-level: 9
 
       - name: 上传全部构建产物
         if: inputs.artifact_upload_mode == '上传全部'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: "${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.ksu_variant }}-All_Outputs"
+          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}
           path: |
-            AnyKernel3/
+            *AnyKernel3.zip
             *.img
-            *.gz
           compression-level: 9
 
       - name: 上传补丁冲突文件
         if: always() && env.REJ_COUNT > 0
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: "REJECTS-${{ inputs.ksu_variant }}-kernel-${{ inputs.kernel_version }}"
+          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-Rejects
           path: patch-rejects/
           if-no-files-found: ignore
           compression-level: 9
