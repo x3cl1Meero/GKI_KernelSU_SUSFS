@@ -973,73 +973,39 @@ jobs:
           KERNEL_VER="${{ inputs.kernel_version }}"
           echo "=== BBR 变体: $BBR_VARIANT / 内核: $KERNEL_VER ==="
 
-          # ── Определяем эффективный вариант ─────────────────────────────
           EFFECTIVE_VARIANT="$BBR_VARIANT"
-
           if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
-            echo "::warning::BBRv3 не поддерживается для kernel $KERNEL_VER — используем стандартный bbr"
             EFFECTIVE_VARIANT="bbr"
           fi
           if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ]; then
-            echo "::warning::BBRplus не поддерживается для kernel $KERNEL_VER — используем стандартный bbr"
             EFFECTIVE_VARIANT="bbr"
           fi
 
-          echo "Эффективный вариант: $EFFECTIVE_VARIANT"
-
-          # ── Применение патча BBRv3 (только для 6.1) ────────────────────
           if [ "$EFFECTIVE_VARIANT" = "bbrv3" ]; then
-            echo "--- Применяем патч BBRv3 для kernel 6.1 ---"
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrv3-6.1.patch"
             if [ ! -f "$PATCH_FILE" ]; then
-              echo "Скачиваем BBRv3 патч из ahmed-alnassif/GKI-Duchamp ..."
               mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              curl -fsSL \
-                "https://raw.githubusercontent.com/ahmed-alnassif/GKI-Duchamp/dev/kernel-patches/bbrv3/bbrv3.patch" \
-                -o "$PATCH_FILE"
+              curl -fsSL "https://raw.githubusercontent.com/ahmed-alnassif/GKI-Duchamp/dev/kernel-patches/bbrv3/bbrv3.patch" -o "$PATCH_FILE"
             fi
-            if [ ! -s "$PATCH_FILE" ]; then
-              echo "::error::Патч BBRv3 пуст или недоступен: $PATCH_FILE"
-              exit 1
-            fi
-            echo "Применяем $PATCH_FILE ..."
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
-            echo "--- BBRv3 патч применён ---"
-            
-            # --- ИСПРАВЛЕНИЕ ДЛЯ CLANG ---
-            # Отключаем строгое предупреждение логических операндов для tcp_bbr.o
             echo "CFLAGS_tcp_bbr.o += -Wno-constant-logical-operand" >> net/ipv4/Makefile
-            echo "Добавлен фикс компилятора -Wno-constant-logical-operand"
           fi
 
-          # ── Применение патча BBRplus (только для 5.10 / 5.15) ──────────
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
-            echo "--- Применяем патч BBRplus для kernel $KERNEL_VER ---"
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
             if [ ! -f "$PATCH_FILE" ]; then
-              echo "Скачиваем BBRplus патч из UJX6N/bbrplus-${KERNEL_VER} ..."
               mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              curl -fsSL \
-                "https://raw.githubusercontent.com/UJX6N/bbrplus-${KERNEL_VER}/main/convert_official_linux-${KERNEL_VER}.x_src_to_bbrplus.patch" \
-                -o "$PATCH_FILE"
+              curl -fsSL "https://raw.githubusercontent.com/UJX6N/bbrplus-${KERNEL_VER}/main/convert_official_linux-${KERNEL_VER}.x_src_to_bbrplus.patch" -o "$PATCH_FILE"
             fi
-            if [ ! -s "$PATCH_FILE" ]; then
-              echo "::error::Патч BBRplus пуст или недоступен: $PATCH_FILE"
-              exit 1
-            fi
-            echo "Применяем $PATCH_FILE ..."
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
-            echo "--- BBRplus патч применён ---"
           fi
 
-          # ── Конфиг-флаги ───────────────────────────────────────────────
-          echo "Инжектируем конфиг-флаги BBR..."
+          # Инжектируем конфиг-флаги BBR
           printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
           
-          # Отключаем лишние модули в правильном для Kconfig / Kleaf формате
+          # Отключаем конфликтующие модули в формате Kconfig, чтобы Bazel не ругался при BUILD_SYSTEM_DLKM=1
           printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
 
-          # BBRplus: регистрирует отдельный алгоритм 'bbrplus'
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
             printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
           fi
@@ -1086,8 +1052,8 @@ jobs:
             cd "$KERNEL_ROOT"
             # Disable ALL GKI-specific checks for custom kernel builds
             sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-            sed -i '/^MODULES_ORDER=/d' ./common/build.config.gki.aarch64
-            sed -i 's/KMI_ENFORCED=1/KMI_ENFORCED=0/g' ./common/build.config.gki.aarch64
+            sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
+            sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' ./common/build.config.gki.aarch64
             # Remove ABI check by patching compare_to_symbol_list to always pass
             if [ -f "build/abi/compare_to_symbol_list" ]; then
               sed -i 's/exit 1/exit 0/g' build/abi/compare_to_symbol_list
@@ -1121,30 +1087,24 @@ jobs:
 
       - name: 装配 AnyKernel3 并打包
         run: |
-          # 1. Копируем готовое ядро внутрь папки AnyKernel3
           cp ./Image "$ANYKERNEL3/"
-
-          # 2. Переходим в папку AnyKernel3 и упаковываем её в ZIP-архив
-          cd "$ANYKERNEL3"
-          ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
-          zip -r "../$ZIP_NAME" *
-          cd ..
 
       - name: 上传 AnyKernel3 刷入包
         if: inputs.artifact_upload_mode != '上传全部'
         uses: actions/upload-artifact@v4
         with:
-          name: "[UNZIP_ME_FIRST]_${{ inputs.ksu_variant }}_AnyKernel3"
-          path: ./*AnyKernel3.zip
+          # GitHub автоматически добавит .zip к этому имени при скачивании
+          name: "${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.ksu_variant }}-AnyKernel3"
+          path: AnyKernel3/
           compression-level: 9
 
       - name: 上传全部构建产物
         if: inputs.artifact_upload_mode == '上传全部'
         uses: actions/upload-artifact@v4
         with:
-          name: "[UNZIP_ME_FIRST]_${{ inputs.ksu_variant }}_All_Outputs"
+          name: "${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.ksu_variant }}-All_Outputs"
           path: |
-            *AnyKernel3.zip
+            AnyKernel3/
             *.img
             *.gz
           compression-level: 9
@@ -1153,7 +1113,7 @@ jobs:
         if: always() && env.REJ_COUNT > 0
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-Rejects
+          name: "REJECTS-${{ inputs.ksu_variant }}-kernel-${{ inputs.kernel_version }}"
           path: patch-rejects/
           if-no-files-found: ignore
           compression-level: 9
