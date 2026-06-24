@@ -864,39 +864,20 @@ jobs:
             echo "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" >> "fs/f2fs/Makefile"
           fi
 
-      - name: 配置 ZRAM 选项
-        if: inputs.use_zram
-        run: |
-          CONFIG_FILE="$DEFCONFIG"
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/lib/* ./lib/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/crypto/* ./crypto/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k_oplus ./lib/
 
-          if [ "${{ inputs.kernel_version }}" = "5.10" ]; then
-            cat >> "$CONFIG_FILE" <<'EOF'
-          CONFIG_ZSMALLOC=y
-          CONFIG_ZRAM=y
-          CONFIG_MODULE_SIG=n
-          CONFIG_CRYPTO_LZO=y
-          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-          EOF
-          else
-            # Для 5.15, 6.1 и новее:
-            # GKI Bazel строго ожидает, что zram.ko и zsmalloc.ko будут модулями (=m).
-            # Не меняем их на =y, чтобы не сломать сборку Bazel!
-            # Просто убеждаемся, что включены нужные алгоритмы.
-            cat >> "$CONFIG_FILE" <<'EOF'
-          CONFIG_CRYPTO_LZ4=y
-          CONFIG_CRYPTO_LZ4HC=y
-          CONFIG_ZRAM_DEF_COMP_LZ4KD=y
-          EOF
-          fi
-          if [ "${{ inputs.kernel_version }}" != "6.6" ] && [ "${{ inputs.kernel_version }}" != "5.10" ]; then
-            if grep -q "CONFIG_ZSMALLOC" "$CONFIG_FILE"; then
-              sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "$CONFIG_FILE"
-            else
-              echo "CONFIG_ZSMALLOC=y" >> "$CONFIG_FILE"
-            fi
-            sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "$CONFIG_FILE"
+          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4kd.patch ./
+          if ! patch -p1 -F 3 < lz4kd.patch; then
+            echo "::warning::lz4kd.patch 应用失败，可能已应用或上下文不匹配"
           fi
 
+          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch ./
+          if ! patch -p1 -F 3 < lz4k_oplus.patch; then
+            echo "::warning::lz4k_oplus.patch 应用失败，可能已应用或上下文不匹配"
+          fi
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
         working-directory: ${{ env.KERNEL_ROOT }}/common
