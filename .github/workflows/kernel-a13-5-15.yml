@@ -170,12 +170,8 @@ jobs:
             os_patch_level: "2024-08"
           - sub_level: "153"
             os_patch_level: "2024-09"
-          - sub_level: "167"
-            os_patch_level: "2024-11"
           - sub_level: "170"
             os_patch_level: "2025-01"
-          - sub_level: "176"
-            os_patch_level: "2024-11"
           - sub_level: "178"
             os_patch_level: "2025-03"
           - sub_level: "180"
@@ -186,8 +182,6 @@ jobs:
             os_patch_level: "2025-09"
           - sub_level: "194"
             os_patch_level: "2025-12"
-          - sub_level: "X"
-            os_patch_level: "lts"
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
