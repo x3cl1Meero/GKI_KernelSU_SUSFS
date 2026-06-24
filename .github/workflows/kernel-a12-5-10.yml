@@ -70,11 +70,15 @@ on:
         required: true
         type: boolean
         default: true # Изменено с false на true
-      use_bbr:
-        description: "启用 BBR 拥塞控制"
-        required: true
-        type: boolean
-        default: true
+      bbr_variant:
+        description: "BBR 变体 (bbr=标准 | bbrplus=5.10/5.15专用 | disabled=关闭)"
+        required: false
+        type: choice
+        options:
+          - "bbr"
+          - "bbrplus"
+          - "disabled"
+        default: "bbrplus"
       use_rekernel:
         description: "启用 Re-Kernel 驱动"
         required: false
@@ -103,10 +107,10 @@ on:
       use_bbg:
         required: true
         type: boolean
-      use_bbr:
+      bbr_variant:
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: "bbrplus"
       use_kpm:
         required: true
         type: string
@@ -221,7 +225,7 @@ jobs:
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}
-      use_bbr: ${{ inputs.use_bbr }}
+      bbr_variant: ${{ inputs.bbr_variant || 'bbrplus' }}
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel || false }}
       supp_op: false
