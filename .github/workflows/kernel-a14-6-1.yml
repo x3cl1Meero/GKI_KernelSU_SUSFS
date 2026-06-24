@@ -70,11 +70,15 @@ on:
         required: true
         type: boolean
         default: true
-      use_bbr:
-        description: "启用 BBR 拥塞控制"
-        required: true
-        type: boolean
-        default: true
+      bbr_variant:
+        description: "BBR 变体 (bbr=标准 | bbrplus=5.10/5.15专用 | disabled=关闭)"
+        required: false
+        type: choice
+        options:
+          - "bbr"
+          - "bbrplus"
+          - "disabled"
+        default: "bbrplus"
       use_rekernel:
         description: "启用 Re-Kernel 驱动"
         required: false
