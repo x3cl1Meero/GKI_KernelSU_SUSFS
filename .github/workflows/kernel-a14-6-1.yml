@@ -71,14 +71,14 @@ on:
         type: boolean
         default: true
       bbr_variant:
-        description: "BBR 变体 (bbr=标准 | bbrplus=5.10/5.15专用 | disabled=关闭)"
+        description: "BBR 变体 (bbr=标准 | bbrv3=6.1专用 | disabled=关闭)"
         required: false
         type: choice
         options:
           - "bbr"
-          - "bbrplus"
+          - "bbrv3"
           - "disabled"
-        default: "bbrplus"
+        default: "bbrv3"
       use_rekernel:
         description: "启用 Re-Kernel 驱动"
         required: false
@@ -107,10 +107,10 @@ on:
       use_bbg:
         required: true
         type: boolean
-      use_bbr:
+      bbr_variant:
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: "bbrv3"
       use_kpm:
         required: true
         type: string
@@ -204,7 +204,7 @@ jobs:
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}
-      bbr_variant: ${{ inputs.bbr_variant || 'bbrplus' }}
+      bbr_variant: ${{ inputs.bbr_variant || 'bbrv3' }}
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel || false }}
       supp_op: false
