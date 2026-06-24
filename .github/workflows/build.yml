@@ -970,15 +970,13 @@ jobs:
             echo "=== Интеграция BBRplus (для 5.10 и 5.15) ==="
             curl -sSLo net/ipv4/tcp_bbrplus.c "https://raw.githubusercontent.com/Steambot12/Templar-Kernel-GKI-5.10/Templar-LinuxStable/net/ipv4/tcp_bbrplus.c"
             
+            # --- ИСПРАВЛЕНИЕ ОШИБКИ КОМПИЛЯТОРА ---
+            # Убираем суффикс 'U' у 0x1F, чтобы избежать конфликта типов в макросе min()
+            sed -i 's/0x1FU/0x1F/g' net/ipv4/tcp_bbrplus.c
+            # --------------------------------------
+            
             if ! grep -q "tcp_bbrplus.o" net/ipv4/Makefile; then
               sed -i '/obj-$(CONFIG_TCP_CONG_BBR)/a obj-$(CONFIG_TCP_CONG_BBRPLUS) += tcp_bbrplus.o' net/ipv4/Makefile
-            fi
-            
-            if ! grep -q "TCP_CONG_BBRPLUS" net/ipv4/Kconfig; then
-              sed -i '/config TCP_CONG_BBR$/i \
-          config TCP_CONG_BBRPLUS\n\
-          \ttristate "BBRplus TCP congestion control"\n\
-          \tdefault y\n' net/ipv4/Kconfig
             fi
             
             cat >> "$DEFCONFIG" << 'EOF'
@@ -1022,9 +1020,9 @@ jobs:
       - name: Исправление module_outs для Bazel
         working-directory: ${{ env.KERNEL_ROOT }}
         run: |
-          # Добавляем недостающие модули в список модуля сборки Bazel
-          # Мы используем sed, чтобы найти блок module_outs и добавить туда новые строки
-          sed -i '/module_outs = \[/a \        "net/ipv4/tcp_bic.ko",\n        "net/ipv4/tcp_htcp.ko",\n        "net/ipv4/tcp_westwood.ko",' common/BUILD.bazel
+          echo "Добавляем TCP модули в Bazel..."
+          # Безопасное добавление файлов через объединение массивов [...] + 
+          sed -i 's/module_outs = /module_outs = ["net\/ipv4\/tcp_bic.ko", "net\/ipv4\/tcp_htcp.ko", "net\/ipv4\/tcp_westwood.ko"] + /g' common/BUILD.bazel
 
       - name: 编译内核
         uses: nick-fields/retry@v4
