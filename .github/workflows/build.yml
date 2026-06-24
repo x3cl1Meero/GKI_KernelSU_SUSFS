@@ -423,6 +423,7 @@ jobs:
               ;;
           esac
 
+          # 检查自定义提交 (仅对 SukiSU 生效)
           CONFIG_FILE="config/config"
           if [ -f "$CONFIG_FILE" ]; then
             CUSTOM_ENABLED=$(grep "^custom=" "$CONFIG_FILE" | cut -d'=' -f2)
@@ -552,6 +553,7 @@ jobs:
             "Official")
               cd ./KernelSU
               cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+              # 兼容旧版补丁：仅当补丁仍只修改 kernel/Makefile 时，才替换为 kernel/Kbuild
               if grep -q '^diff --git a/kernel/Makefile b/kernel/Makefile' ./10_enable_susfs_for_ksu.patch \
                 && ! grep -q '^diff --git a/kernel/Kbuild b/kernel/Kbuild' ./10_enable_susfs_for_ksu.patch; then
                 sed -i 's|kernel/Makefile|kernel/Kbuild|g' ./10_enable_susfs_for_ksu.patch
@@ -571,6 +573,7 @@ jobs:
             CURRENT_SUB=99999
           fi
 
+          # 在应用主补丁前临时调整源码上下文，替代已归档的 wild 修复小补丁
           if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
             if [[ "$CURRENT_SUB" -le 43 ]]; then
               echo "临时调整 Android 12 5.10 base.c 上下文"
@@ -639,15 +642,15 @@ jobs:
           fi
 
           if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-            if [[ "$CURRENT_SUB" -ge 58 ]] && ! grep -qF '#include <linux/dma-buf.h>' fs/exec.c; then
-              echo "临时调整 Android 16 6.12 exec.c 临时调整"
-              sed -i '0,/^#include /s//#include <linux\/dma-buf.h>\n&/' fs/exec.c
+            if [[ "$CURRENT_SUB" -ge 58 ]]; then
+              echo "临时调整 Android 16 6.12 exec.c 上下文"
+              sed -i '/^#include <linux\/dma-buf.h>$/d' fs/exec.c
             fi
           fi
 
           patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
 
-          # 主补丁应用后还原临时上下文
+          # 主补丁应用后还原临时上下文，避免无关源码差异保留到最终产物
           if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
             if [[ "$CURRENT_SUB" -le 43 ]]; then
               echo "还原 Android 12 5.10 base.c 临时调整"
@@ -715,6 +718,122 @@ jobs:
             fi
           fi
 
+          if [ "${{ inputs.ksu_variant }}" == "Official" ] || [ "${{ inputs.ksu_variant }}" == "Next" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ]; then
+            # Android 12 - 5.10 修复
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+              # 修复 2024-11 分支: mmap.c 调用了 vm_flags_clear()，但同分支 mm.h 未提供 helper
+              if [[ "${{ inputs.os_patch_level }}" == "2024-11" ]] && grep -qF 'vm_flags_clear(new_vma, VM_PAD_MASK);' ./mm/mmap.c; then
+                sed -i 's/vm_flags_clear(new_vma, VM_PAD_MASK);/new_vma->vm_flags \&= ~VM_PAD_MASK;/' ./mm/mmap.c
+              fi
+              if [[ "$CURRENT_SUB" -le 209 ]]; then
+                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+              fi
+            fi
+
+            # Android 13 - 5.15 修复
+            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
+              # 修复 2024-11 分支: mmap.c 调用了 vm_flags_clear()，但同分支 mm.h 未提供 helper
+              if [[ "${{ inputs.os_patch_level }}" == "2024-11" ]] && grep -qF 'vm_flags_clear(new_vma, VM_PAD_MASK);' ./mm/mmap.c; then
+                sed -i 's/vm_flags_clear(new_vma, VM_PAD_MASK);/new_vma->vm_flags \&= ~VM_PAD_MASK;/' ./mm/mmap.c
+              fi
+              if [[ "$CURRENT_SUB" -le 148 && "${{ inputs.os_patch_level }}" != "2024-05" ]]; then
+                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+              fi
+              # 修复 5.15 LTS: task_mmu.c 头部 hunk 失配，导致 SUSFS 宏缺少声明
+              if grep -q 'SUSFS_IS_INODE_SUS_MAP\|SUSFS_IS_INODE_OPEN_REDIRECT' ./fs/proc/task_mmu.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/proc/task_mmu.c; then
+                if grep -qF '#include <linux/pkeys.h>' ./fs/proc/task_mmu.c; then
+                  sed -i '/#include <linux\/pkeys.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/task_mmu.c
+                elif grep -qF '#include <linux/uaccess.h>' ./fs/proc/task_mmu.c; then
+                  sed -i '/#include <linux\/uaccess.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/task_mmu.c
+                else
+                  sed -i '0,/^#include /s//#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif\n&/' ./fs/proc/task_mmu.c
+                fi
+                echo "已修复 Android 13 5.15 task_mmu.c 缺少 susfs_def.h 问题"
+              fi
+            fi
+
+            # Android 14 - 6.1 修复
+            if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
+              if grep -q 'susfs_is_current_proc_umounted\|SUSFS_IS_INODE_SUS_MAP\|SUSFS_IS_INODE_OPEN_REDIRECT' ./fs/proc/base.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/proc/base.c; then
+                if grep -qF '#include <linux/dma-buf.h>' ./fs/proc/base.c; then
+                  sed -i '/#include <linux\/dma-buf.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/base.c
+                else
+                  sed -i '/#include <linux\/cpufreq_times.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux\/susfs_def.h>\n#endif' ./fs/proc/base.c
+                fi
+              fi
+              if [[ "$CURRENT_SUB" -le 75 && "${{ inputs.os_patch_level }}" != "2024-05" ]]; then
+                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+              fi
+              # 修复 6.1 LTS: SUSFS 补丁在 namespace.c 头部 hunk 因上下文不匹配而失败，
+              # 导致函数体中的 SUSFS 符号（DEFAULT_KSU_MNT_ID 等）未声明
+              if grep -q 'DEFAULT_KSU_MNT_ID\|susfs_mnt_id_ida' ./fs/namespace.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/namespace.c; then
+                echo "检测到 namespace.c 缺少 susfs_def.h，注入声明..."
+                sed -i '/#include <linux\/mnt_idmapping.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n#include <linux\/susfs_def.h>\n#endif' ./fs/namespace.c
+                if ! grep -q 'extern bool susfs_is_current_ksu_domain' ./fs/namespace.c; then
+                  sed -i '/#include "internal.h"/a \\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\nextern bool susfs_is_current_ksu_domain(void);\nextern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;\n\n#define CL_COPY_MNT_NS BIT(25)\n\n#endif' ./fs/namespace.c
+                fi
+              fi
+            fi
+
+            # Android 15 - 6.6 修复
+            if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
+              # 修复 6.6.50~6.6.97: fs/proc/base.c 头部 hunk 失配，导致 susfs_def.h 漏打
+              if grep -q 'AS_FLAGS_SUS_MAP\|susfs_is_current_proc_umounted\|SUSFS_IS_INODE_SUS_MAP\|SUSFS_IS_INODE_OPEN_REDIRECT' ./fs/proc/base.c && ! grep -qF 'susfs_def.h' ./fs/proc/base.c; then
+                if ! grep -qF '#include <linux/dma-buf.h>' ./fs/proc/base.c; then
+                  sed -i '/#include <linux\/cpufreq_times.h>/a #include <linux\/dma-buf.h>' ./fs/proc/base.c
+                fi
+                sed -i '/#include <linux\/dma-buf.h>/a #endif' ./fs/proc/base.c
+                sed -i '/#include <linux\/dma-buf.h>/a #include <linux\/susfs_def.h>' ./fs/proc/base.c
+                sed -i '/#include <linux\/dma-buf.h>/a #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)' ./fs/proc/base.c
+              fi
+              # 修复 6.6 早期分支: memory.c 头部上下文缺少 zswap.h，导致 SUSFS 头文件 hunk 漏打
+              if grep -q 'SUSFS_IS_INODE_SUS_MAP' ./mm/memory.c && ! grep -qF '#include <linux/susfs_def.h>' ./mm/memory.c; then
+                if grep -qF '#include <linux/zswap.h>' ./mm/memory.c; then
+                  sed -i '/#include <linux\/zswap.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MAP\n#include <linux\/susfs_def.h>\n#endif' ./mm/memory.c
+                else
+                  sed -i '/#include <linux\/sched\/sysctl.h>/a #ifdef CONFIG_KSU_SUSFS_SUS_MAP\n#include <linux\/susfs_def.h>\n#endif' ./mm/memory.c
+                fi
+              fi
+              # 修复老版 SukiSU 6.6.50~6.6.58: task_mmu.c 打入 SUSFS 后使用 vma，但旧源码没有对应声明
+              if [[ -n "$LEGACY_SUKISU_CONFIG" && "$CURRENT_SUB" -ge 50 && "$CURRENT_SUB" -le 58 ]] \
+                && grep -qF 'vma = find_vma(mm, start_vaddr);' ./fs/proc/task_mmu.c; then
+                TASK_MMU_PATCH="$KERNEL_PATCHES/wild/archived/susfs_fix_patches/v2.1.0/a15-6.6/task_mmu.c.patch"
+                if [ ! -f "$TASK_MMU_PATCH" ]; then
+                  echo "::error::补丁不存在: $TASK_MMU_PATCH"
+                  exit 1
+                fi
+                cp "$TASK_MMU_PATCH" ./
+                if patch -p1 --dry-run < task_mmu.c.patch >/dev/null 2>&1; then
+                  patch -p1 --no-backup-if-mismatch < task_mmu.c.patch
+                  echo "已应用 Android 15 6.6.50~6.6.58 task_mmu.c 归档修复补丁"
+                else
+                  echo "Android 15 6.6.50~6.6.58 task_mmu.c 归档修复补丁已应用或当前上下文不匹配，跳过"
+                fi
+              fi
+
+            fi
+
+            # Android 16 - 6.12 修复
+            if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
+              # 修复 setuid_hook.c 重复定义
+              SETUID_HOOK="$KERNEL_ROOT/common/drivers/kernelsu/setuid_hook.c"
+              if [ -f "$SETUID_HOOK" ]; then
+                sed -i 's/defined(CONFIG_KSU_MANUAL_HOOK))/!defined(CONFIG_KSU_SUSFS) \&\& defined(CONFIG_KSU_MANUAL_HOOK))/' "$SETUID_HOOK"
+                echo "已修复 setuid_hook.c 重复定义问题"
+              fi
+
+              # 修复 6.12.58+: exec.c 头部上下文变化导致 SUSFS 补丁漏掉 susfs_def.h
+              if grep -q 'susfs_is_current_proc_umounted' ./fs/exec.c && ! grep -qF '#include <linux/susfs_def.h>' ./fs/exec.c; then
+                if grep -qF '#include <linux/dma-buf.h>' ./fs/exec.c; then
+                  sed -i '/#include <linux\/dma-buf.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
+                else
+                  sed -i '/#include <linux\/ksm.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' ./fs/exec.c
+                fi
+                echo "已修复 exec.c 缺少 susfs_def.h 问题"
+              fi
+            fi
+          fi
+
       - name: 克隆 Droidspaces 补丁仓库
         if: inputs.droidspaces != 'off'
         run: |
@@ -731,6 +850,7 @@ jobs:
           KERNEL_VER="${{ inputs.kernel_version }}"
           SLOT="${{ inputs.droidspaces }}"
 
+          # 678 -> 6_7_8, 123 -> 1_2_3, 345 -> 3_4_5
           SLOT_NAME=$(echo "$SLOT" | sed 's/\(.\)/\1_/g; s/_$//')
           echo "应用 Droidspaces SYSVIPC kABI 修复补丁 (槽位: $SLOT / $SLOT_NAME)..."
           case "$KERNEL_VER" in
@@ -749,6 +869,7 @@ jobs:
             echo "::warning::SYSVIPC kABI 补丁应用失败，可能已应用或上下文不匹配"
           fi
 
+          # 5.10 及以下还需要 POSIX_MQUEUE 的 kABI 修复
           if [ "$KERNEL_VER" = "5.10" ]; then
             echo "应用 Droidspaces POSIX_MQUEUE kABI 修复补丁 (5.10)..."
             POSIX_PATCH="$DROIDSPACES_PATCHES/below-kernel-6.12/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch"
@@ -757,6 +878,9 @@ jobs:
             fi
           fi
 
+          # Android 16 / 6.12 的 rust_binder.ko 在启用 IPC_NS 后会引用
+          # init_ipc_ns 与 put_ipc_ns，但当前 AOSP common 分支尚未导出这两个符号。
+          # 这里补齐导出，避免 modpost 因 undefined symbol 失败。
           if [ "$KERNEL_VER" = "6.12" ]; then
             if [ -f "ipc/msgutil.c" ] && ! grep -qF 'EXPORT_SYMBOL(init_ipc_ns);' "ipc/msgutil.c"; then
               sed -i '/^struct msg_msgseg {/i EXPORT_SYMBOL(init_ipc_ns);' "ipc/msgutil.c"
@@ -770,6 +894,7 @@ jobs:
           fi
 
           echo "添加 Droidspaces 内核配置..."
+          # 按文档规则逐个处理: 已启用则跳过, "# not set" 则替换, 不存在则追加
           enable_config() {
             local cfg="$1"
             if grep -q "^${cfg}=y" "$DEFCONFIG"; then
@@ -797,12 +922,14 @@ jobs:
             fi
           }
 
+          # 必要配置
           enable_config CONFIG_SYSVIPC
           enable_config CONFIG_POSIX_MQUEUE
           enable_config CONFIG_IPC_NS
           enable_config CONFIG_PID_NS
           enable_config CONFIG_DEVTMPFS
 
+          # 可选: 网络相关配置 (Docker/NAT 模式)
           enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
           enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_LOG
           enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_RECENT
@@ -811,10 +938,33 @@ jobs:
           enable_config_if_defined CONFIG_IP_SET_HASH_NET
           enable_config_if_defined CONFIG_NETFILTER_XT_SET
 
+          # REJECT 目标在不同内核版本上的符号名可能不同，按实际存在的配置启用
           enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_REJECT
           enable_config_if_defined CONFIG_IP_NF_TARGET_REJECT
 
           echo "Droidspaces 集成完成"
+
+          echo "GKI6.6 普通用户联网专用配置 (Droidspaces)"
+          # 专门处理 =n 类型的配置（安卓网络权限必须关闭）
+          disable_config() {
+            local cfg="$1"
+            if grep -q "^${cfg}=n" "$DEFCONFIG"; then
+              echo "  已禁用: $cfg"
+            elif grep -q "^${cfg}=y" "$DEFCONFIG"; then
+              sed -i "s/^${cfg}=y$/${cfg}=n/" "$DEFCONFIG"
+              echo "  已关闭: $cfg"
+            else
+              echo "# ${cfg} is not set" >> "$DEFCONFIG"
+              echo "  已添加并禁用: $cfg"
+            fi
+          }
+
+          if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
+            # 1. 开启用户命名空间（必须）
+            # enable_config_if_defined CONFIG_USER_NS
+            # 2. 关闭安卓严格网络控制（必须）
+            disable_config CONFIG_ANDROID_PARANOID_NETWORK
+          fi
 
       - name: 注入 NTSync 内核配置
         if: inputs.droidspaces != 'off' && inputs.droidspaces_ntsync
@@ -826,14 +976,28 @@ jobs:
           echo "Kernel 版本: ${{ inputs.kernel_version }}"
 
           case "${{ inputs.android_version }}-${{ inputs.kernel_version }}" in
-            android12-5.10) NTSYNC_PATCH="ntsync_compat_android12-5.10" ;;
-            android13-5.15) NTSYNC_PATCH="ntsync_compat_android13-5.15" ;;
-            android14-6.1) NTSYNC_PATCH="ntsync_compat_android14-6.1" ;;
-            android15-6.6) NTSYNC_PATCH="ntsync_compat_android15-6.6" ;;
-            android16-6.12) NTSYNC_PATCH="ntsync_compat_android16-6.12" ;;
-            *) echo "::warning::NTSync: 未适配跳过补丁"; exit 0 ;;
+            android12-5.10)
+              NTSYNC_PATCH="ntsync_compat_android12-5.10"
+              ;;
+            android13-5.15)
+              NTSYNC_PATCH="ntsync_compat_android13-5.15"
+              ;;
+            android14-6.1)
+              NTSYNC_PATCH="ntsync_compat_android14-6.1"
+              ;;
+            android15-6.6)
+              NTSYNC_PATCH="ntsync_compat_android15-6.6"
+              ;;
+            android16-6.12)
+              NTSYNC_PATCH="ntsync_compat_android16-6.12"
+              ;;
+            *)
+              echo "::warning::NTSync: 未适配 ${{ inputs.android_version }} / ${{ inputs.kernel_version }}，跳过补丁"
+              exit 0
+              ;;
           esac
 
+          echo "自动选择 NTSync 补丁: ${NTSYNC_PATCH}.patch"
           wget -q "https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/ntsync_base.patch"
           wget -q "https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/refs/heads/main/NTsync/${NTSYNC_PATCH}.patch"
 
@@ -841,11 +1005,21 @@ jobs:
           patch -p1 < "${NTSYNC_PATCH}.patch"
 
           cd ..
+
+          # 配置路径
           CONFIG_PATH="./common/arch/arm64/configs/gki_defconfig"
+          echo "正在检查并启用 CONFIG_NTSYNC..."
+
+          # 移除未启用标记，再追加启用项，保证重复运行时保持幂等。
           sed -i '/CONFIG_NTSYNC is not set/d' "$CONFIG_PATH"
           if ! grep -q "^CONFIG_NTSYNC=y" "$CONFIG_PATH"; then
             echo "CONFIG_NTSYNC=y" >> "$CONFIG_PATH"
+            echo "✅ 已成功启用 CONFIG_NTSYNC"
+          else
+            echo "✅ CONFIG_NTSYNC 已处于启用状态"
           fi
+
+          echo "=== NTSync 补丁与配置注入完成 ==="
 
       - name: 应用 Unicode 绕过修复
         if: inputs.enable_susfs
@@ -855,6 +1029,36 @@ jobs:
             patch -p1 --forward < "$ACTION_BUILD/patches/unicode_bypass_fix_6.1-.patch" || true
           else
             patch -p1 --forward < "$ACTION_BUILD/patches/unicode_bypass_fix_6.1+.patch" || true
+          fi
+
+      - name: 配置 ZRAM LZ4 补丁栈
+        if: inputs.use_zram
+        working-directory: ${{ env.KERNEL_ROOT }}/common
+        run: |
+          echo "升级 LZ4..."
+          rm -f lib/lz4/lz4_compress.c lib/lz4/lz4_decompress.c lib/lz4/lz4defs.h lib/lz4/lz4hc_compress.c
+
+          cp -r $ZZH_PATCHES/zram/lz4/* ./lib/lz4/
+          cp -r $ZZH_PATCHES/zram/include/linux/* ./include/linux/
+          bash $ZZH_PATCHES/zram/apply_lz4_neon.sh
+
+          if [ -f "fs/f2fs/Makefile" ] && ! grep -qF "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" "fs/f2fs/Makefile"; then
+            echo "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" >> "fs/f2fs/Makefile"
+          fi
+
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/include/linux/* ./include/linux/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/lib/* ./lib/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k/crypto/* ./crypto/
+          cp -r $SUKISU_PATCHES/other/zram/lz4k_oplus ./lib/
+
+          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4kd.patch ./
+          if ! patch -p1 -F 3 < lz4kd.patch; then
+            echo "::warning::lz4kd.patch 应用失败，可能已应用或上下文不匹配"
+          fi
+
+          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch ./
+          if ! patch -p1 -F 3 < lz4k_oplus.patch; then
+            echo "::warning::lz4k_oplus.patch 应用失败，可能已应用或上下文不匹配"
           fi
 
       - name: 修复 6.6 WiFi/蓝牙兼容性（三星 + 小米）
@@ -903,36 +1107,6 @@ jobs:
 
           ensure_line_once "$XIAOMI_SYMBOL_LIST" "device_find_any_child"
 
-      - name: 配置 ZRAM LZ4 补丁栈
-        if: inputs.use_zram
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          echo "升级 LZ4..."
-          rm -f lib/lz4/lz4_compress.c lib/lz4/lz4_decompress.c lib/lz4/lz4defs.h lib/lz4/lz4hc_compress.c
-
-          cp -r $ZZH_PATCHES/zram/lz4/* ./lib/lz4/
-          cp -r $ZZH_PATCHES/zram/include/linux/* ./include/linux/
-          bash $ZZH_PATCHES/zram/apply_lz4_neon.sh
-
-          if [ -f "fs/f2fs/Makefile" ] && ! grep -qF "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" "fs/f2fs/Makefile"; then
-            echo "f2fs-\$(CONFIG_F2FS_IOSTAT) += iostat.o" >> "fs/f2fs/Makefile"
-          fi
-
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/include/linux/* ./include/linux/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/lib/* ./lib/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k/crypto/* ./crypto/
-          cp -r $SUKISU_PATCHES/other/zram/lz4k_oplus ./lib/
-
-          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4kd.patch ./
-          if ! patch -p1 -F 3 < lz4kd.patch; then
-            echo "::warning::lz4kd.patch 应用失败，可能已应用或上下文不匹配"
-          fi
-
-          cp $SUKISU_PATCHES/other/zram/zram_patch/${{ inputs.kernel_version }}/lz4k_oplus.patch ./
-          if ! patch -p1 -F 3 < lz4k_oplus.patch; then
-            echo "::warning::lz4k_oplus.patch 应用失败，可能已应用或上下文不匹配"
-          fi
-
       - name: 配置 ZRAM 选项
         if: inputs.use_zram
         run: |
@@ -970,7 +1144,6 @@ jobs:
             cat "$ZZH_PATCHES/config/zram.config" >> "$CONFIG_FILE"
           fi
 
-
       - name: 集成 Baseband-guard LSM 模块
         if: inputs.use_bbg
         working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -992,7 +1165,7 @@ jobs:
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
           
           echo "=== BBG done ==="
-          
+
       - name: 应用 Re-Kernel
         if: inputs.use_rekernel
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -1003,15 +1176,20 @@ jobs:
           rm -rf "$TMP_REKERNEL"
           git clone --depth 1 https://github.com/Sakion-Team/Re-Kernel.git "$TMP_REKERNEL"
 
+          # 准备驱动源码
           mkdir -p common/drivers/rekernel
           cp "$TMP_REKERNEL/LKM-Source/rekernel.c" common/drivers/rekernel/
           cp "$TMP_REKERNEL/LKM-Source/rekernel.h" common/drivers/rekernel/
 
+          # 生成构建配置
           cat > common/drivers/rekernel/Kconfig << 'EOF'
           menu "Re:Kernel"
           config REKERNEL
               bool "Re:Kernel support (GKI Vendor Hooks)"
               default y
+              help
+                Enable Re-Kernel support via GKI Vendor Hooks.
+
           config REKERNEL_NETWORK
               bool "Re:Kernel NetReceive unfreeze support"
               depends on REKERNEL
@@ -1024,6 +1202,7 @@ jobs:
           ccflags-$(CONFIG_REKERNEL_NETWORK) += -DNETWORK_FILTER
           EOF
 
+          # 挂载到驱动树
           if ! grep -qF 'source "drivers/rekernel/Kconfig"' common/drivers/Kconfig; then
             sed -i '/^endmenu$/i source "drivers/rekernel/Kconfig"' common/drivers/Kconfig
           fi
@@ -1031,7 +1210,21 @@ jobs:
             echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> common/drivers/Makefile
           fi
 
+          # 启用内核版本宏
+          REKERNEL_H="common/drivers/rekernel/rekernel.h"
+          VERSION_MACRO="KERNEL_$(echo "${{ inputs.kernel_version }}" | tr '.' '_')"
+          if grep -q "^// #define ${VERSION_MACRO}$" "$REKERNEL_H"; then
+            sed -i "s|^// #define ${VERSION_MACRO}$|#define ${VERSION_MACRO}|" "$REKERNEL_H"
+          fi
+
+          # 修正头文件包含路径（适配 in-tree 编译）
+          sed -i 's|#include <../android/binder_internal.h>|#include "../../drivers/android/binder_internal.h"|g' common/drivers/rekernel/rekernel.c
+          # 补齐 binder_internal 依赖（避免 5.10 下 DEFINE_SHOW_ATTRIBUTE 报错）
+          grep -qF '#include <linux/seq_file.h>' common/drivers/rekernel/rekernel.c || sed -i '/#include <trace\/hooks\/signal.h>/a #include <linux/seq_file.h>' common/drivers/rekernel/rekernel.c
+
+          # 配置 defconfig（幂等）
           grep -q '^CONFIG_REKERNEL=y$' "$DEFCONFIG" || echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
+          grep -q '^CONFIG_REKERNEL_NETWORK=y$' "$DEFCONFIG" || echo "CONFIG_REKERNEL_NETWORK=y" >> "$DEFCONFIG"
 
       - name: 配置内核选项
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -1042,9 +1235,33 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
-            if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40726)" ] || [ "${{ inputs.ksu_variant }}" == "SukiSU(40548)" ] || [ "${{ inputs.ksu_variant }}" == "ReSukiSU" ] || [ "${{ inputs.ksu_variant }}" == "Next" ]; then
+            if [[ "${{ inputs.use_kpm }}" == enabled* ]] || [[ "${{ inputs.use_kpm }}" == patched* ]]; then
+              if ! grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' common KernelSU 2>/dev/null; then
+                echo "错误: 已请求启用 KPM，但当前 KernelSU 代码未声明 CONFIG_KPM" >&2
+                exit 1
+              fi
               echo "CONFIG_KPM=y" >> "$DEFCONFIG"
+            fi
+          fi
+
+          CURRENT_SUB="${{ inputs.sub_level }}"
+          if [[ ! "$CURRENT_SUB" =~ ^[0-9]+$ ]]; then
+            CURRENT_SUB=99999
+          fi
+          if [[ "${{ inputs.ksu_variant }}" == "ReSukiSU" && "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "$CURRENT_SUB" -ge 74 && "$CURRENT_SUB" -le 137 ]]; then
+            {
+              echo "CONFIG_KALLSYMS=y"
+              echo "CONFIG_KALLSYMS_ALL=y"
+            } >> "$DEFCONFIG"
+            # 修复 5.15.74~5.15.137: kallsyms_on_each_symbol 仅在 LIVEPATCH 下编译，导致 ReSukiSU 链接失败
+            KALLSYMS_C="./common/kernel/kallsyms.c"
+            if [ -f "$KALLSYMS_C" ] \
+              && grep -qF 'int kallsyms_on_each_symbol' "$KALLSYMS_C" \
+              && grep -qF '#endif /* CONFIG_LIVEPATCH */' "$KALLSYMS_C"; then
+              sed -i '/^#ifdef CONFIG_LIVEPATCH$/,/^int kallsyms_on_each_symbol/ { /^#ifdef CONFIG_LIVEPATCH$/d }' "$KALLSYMS_C"
+              sed -i '/^int kallsyms_on_each_symbol/,/^#endif \/\* CONFIG_LIVEPATCH \*\// { /^#endif \/\* CONFIG_LIVEPATCH \*\//d }' "$KALLSYMS_C"
+              echo "已修复 kallsyms_on_each_symbol 的 LIVEPATCH 编译限制"
             fi
           fi
 
@@ -1180,6 +1397,7 @@ jobs:
           echo "KBUILD_BUILD_TIMESTAMP=$DATESTR" >> "$GITHUB_ENV"
           echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
 
+          # 统一处理 mkcompile_h 补丁
           f="$KERNEL_ROOT/common/scripts/mkcompile_h"
           if [ -f "$f" ]; then
             if [[ "${{ inputs.kernel_version }}" == "5.10" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
@@ -1215,6 +1433,7 @@ jobs:
               LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang" || exit 1
               strings "out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" | grep 'Linux version'
             else
+              # 提取 gki_defconfig 修改到 fragment，避免 bazel trim 检查失败
               FRAG="common/arch/arm64/configs/ksu.fragment"
               diff "$DEFCONFIG.orig" "$DEFCONFIG" | grep '^>' | sed 's/^> //; s/^[[:space:]]*//' > "$FRAG" || true
               cp "$DEFCONFIG.orig" "$DEFCONFIG"
@@ -1236,6 +1455,27 @@ jobs:
             echo "当前 KSU 最新提交日期: ${KSU_LATEST_COMMIT_DATE}"
             echo "当前 SUSFS 最新提交日期: ${SUSFS_LATEST_COMMIT_DATE}"
             echo "如果日期不同或相差过远则补丁失效、编译失败"
+
+      # - name: 应用 KPM 补丁 (SukiSU/ReSukiSU/Next)
+      #   if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
+      #   run: |
+      #     case "${{ inputs.android_version }}" in
+      #       "android12"|"android13")
+      #         if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
+      #           TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+      #         fi
+      #         ;;
+      #       "android14"|"android15"|"android16")
+      #         TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
+      #         ;;
+      #     esac
+
+      #     cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
+      #     cd "$TARGET_PATH"
+      #     chmod 777 patch
+      #     ./patch
+      #     rm -rf Image
+      #     mv oImage Image
 
       - name: 准备 Boot 镜像
         run: |
@@ -1259,20 +1499,12 @@ jobs:
           cd "$ANYKERNEL3"
           ZIP_NAME="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-AnyKernel3.zip"
           mv ../Image ./Image
-          
-          echo "Поиск и упаковка скомпилированных ядерных модулей (.ko)..."
-          find "$GITHUB_WORKSPACE" -name "*.ko" -type f ! -path "$ANYKERNEL3/*" -exec cp {} ./ \; 2>/dev/null || true
-          
           zip -r "../$ZIP_NAME" ./*
 
       - name: 准备 AnyKernel3 目录
         if: inputs.artifact_upload_mode != '上传全部'
         run: |
           mv ./Image "$ANYKERNEL3/Image"
-          
-          cd "$ANYKERNEL3"
-          echo "Поиск и подготовка ядерных модулей (.ko)..."
-          find "$GITHUB_WORKSPACE" -name "*.ko" -type f ! -path "$ANYKERNEL3/*" -exec cp {} ./ \; 2>/dev/null || true
 
       - name: 构建 Boot 镜像 (Android 12)
         if: inputs.android_version == 'android12'
