@@ -880,7 +880,7 @@ jobs:
 
           # Android 16 / 6.12 的 rust_binder.ko 在启用 IPC_NS 后会引用
           # init_ipc_ns 与 put_ipc_ns，但当前 AOSP common 分支尚未导出这两个符号。
-          # 这里补齐导出，避免 modpost 因 undefined symbol 失败。
+          # Здесь補齐导出，避免 modpost 因 undefined symbol 失败。
           if [ "$KERNEL_VER" = "6.12" ]; then
             if [ -f "ipc/msgutil.c" ] && ! grep -qF 'EXPORT_SYMBOL(init_ipc_ns);' "ipc/msgutil.c"; then
               sed -i '/^struct msg_msgseg {/i EXPORT_SYMBOL(init_ipc_ns);' "ipc/msgutil.c"
@@ -1456,26 +1456,39 @@ jobs:
             echo "当前 SUSFS 最新提交日期: ${SUSFS_LATEST_COMMIT_DATE}"
             echo "如果日期不同或相差过远则补丁失效、编译失败"
 
-      # - name: 应用 KPM 补丁 (SukiSU/ReSukiSU/Next)
-      #   if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
-      #   run: |
-      #     case "${{ inputs.android_version }}" in
-      #       "android12"|"android13")
-      #         if [ "${{ inputs.kernel_version }}" != "6.6" ]; then
-      #           TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-      #         fi
-      #         ;;
-      #       "android14"|"android15"|"android16")
-      #         TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
-      #         ;;
-      #     esac
+      - name: 应用 KPM 二进制补丁 (SukiSU/ReSukiSU/Next)
+        if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
+        run: |
+          echo "=== Начинаем бинарный патчинг KPM ==="
+          
+          # Синхронизация логики путей с шагом "准备 Boot 镜像" (Подготовка Boot Image)
+          if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
+            TARGET_PATH="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
+          else
+            TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+          fi
 
-      #     cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
-      #     cd "$TARGET_PATH"
-      #     chmod 777 patch
-      #     ./patch
-      #     rm -rf Image
-      #     mv oImage Image
+          if [ ! -f "$TARGET_PATH/Image" ]; then
+            echo "::error::Не найден Image для патчинга KPM по пути $TARGET_PATH"
+            exit 1
+          fi
+
+          echo "Копируем утилиту patch_linux в $TARGET_PATH..."
+          cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
+          
+          cd "$TARGET_PATH"
+          chmod +x patch
+          
+          echo "Запускаем патчер KPM..."
+          ./patch || { echo "::error::Ошибка во время выполнения патча KPM"; exit 1; }
+          
+          if [ -f "oImage" ]; then
+            echo "Патч успешно применен. Заменяем оригинальный Image на пропатченный oImage."
+            rm -f Image
+            mv oImage Image
+          else
+            echo "::warning::Файл oImage не создан. Возможно, ядро уже пропатчено или не требует вмешательства."
+          fi
 
       - name: 准备 Boot 镜像
         run: |
