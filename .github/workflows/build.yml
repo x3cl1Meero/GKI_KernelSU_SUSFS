@@ -1034,7 +1034,10 @@ jobs:
 
           # ── Конфиг-флаги ───────────────────────────────────────────────
           echo "Инжектируем конфиг-флаги BBR..."
-          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\nCONFIG_TCP_CONG_WESTWOOD=n\nCONFIG_TCP_CONG_HTCP=n\nCONFIG_TCP_CONG_BIC=n\n' >> "$DEFCONFIG"
+          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
+          
+          # Отключаем лишние модули в правильном для Kconfig / Kleaf формате
+          printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
 
           # BBRplus: регистрирует отдельный алгоритм 'bbrplus'
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
@@ -1042,7 +1045,6 @@ jobs:
           fi
 
           echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
-
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
