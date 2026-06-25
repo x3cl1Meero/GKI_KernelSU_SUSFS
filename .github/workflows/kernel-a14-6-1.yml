@@ -71,14 +71,14 @@ on:
         type: boolean
         default: true
       bbr_variant:
-        description: "BBR 变体 (bbr=标准 | bbrv3=6.1专用 | disabled=关闭)"
+        description: "BBR 变体 (bbr=标准 | bbrplus=5.10/5.15/6.1专用 | disabled=关闭)"
         required: false
         type: choice
         options:
           - "bbr"
-          - "bbrv3"
+          - "bbrplus"
           - "disabled"
-        default: "bbrv3"
+        default: "bbrplus"
       use_rekernel:
         description: "启用 Re-Kernel 驱动"
         required: false
