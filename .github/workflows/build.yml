@@ -1280,8 +1280,7 @@ jobs:
           if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
             EFFECTIVE_VARIANT="bbr"
           fi
-          
-          if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ] && [ "$KERNEL_VER" != "6.1" ]; then
+          if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ]; then
             EFFECTIVE_VARIANT="bbr"
           fi
 
@@ -1289,7 +1288,7 @@ jobs:
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrv3-6.1.patch"
             if [ ! -f "$PATCH_FILE" ]; then
               mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              curl -fsSL "https://raw.githubusercontent.com/ahmed-alnassif/GKI-Duchamp/dev/kernel-patches/bbrv3/bbrv3.patch" -o "$PATCH_FILE"
+              curl -fsSL "https://github.com/WildKernels/kernel_patches/blob/3a75d651cf999e213c6998a7101eea7c5c6c741e/common/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch" -o "$PATCH_FILE"
             fi
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
             echo "CFLAGS_tcp_bbr.o += -Wno-constant-logical-operand" >> net/ipv4/Makefile
@@ -1304,19 +1303,12 @@ jobs:
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
           fi
 
-          # === ИЗМЕНЕННАЯ ЧАСТЬ НАЧИНАЕТСЯ ЗДЕСЬ ===
+          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
           
-          # 1. Базовые настройки (включаем BBR и FQ, но не делаем BBR дефолтным для всех)
-          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\n' >> "$DEFCONFIG"
           printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
 
-          # 2. Устанавливаем дефолтный алгоритм в зависимости от выбранного варианта
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
-            printf '# CONFIG_DEFAULT_BBR is not set\n' >> "$DEFCONFIG"
-            printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
-          else
-            # Для bbrv3 или обычного bbr
-            printf 'CONFIG_DEFAULT_BBR=y\nCONFIG_DEFAULT_TCP_CONG="bbr"\n' >> "$DEFCONFIG"
+            printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
           fi
 
           echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
