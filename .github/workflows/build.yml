@@ -1280,7 +1280,9 @@ jobs:
           if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
             EFFECTIVE_VARIANT="bbr"
           fi
-          if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ]; then
+          
+          # Добавлено условие && [ "$KERNEL_VER" != "6.1" ], чтобы разрешить bbrplus для ядра 6.1
+          if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ] && [ "$KERNEL_VER" != "6.1" ]; then
             EFFECTIVE_VARIANT="bbr"
           fi
 
@@ -1298,6 +1300,8 @@ jobs:
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
             if [ ! -f "$PATCH_FILE" ]; then
               mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
+              # При KERNEL_VER="6.1" эта строка автоматически сформирует нужную raw-ссылку:
+              # https://raw.githubusercontent.com/UJX6N/bbrplus-6.1/main/convert_official_linux-6.1.x_src_to_bbrplus.patch
               curl -fsSL "https://raw.githubusercontent.com/UJX6N/bbrplus-${KERNEL_VER}/main/convert_official_linux-${KERNEL_VER}.x_src_to_bbrplus.patch" -o "$PATCH_FILE"
             fi
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
