@@ -1268,50 +1268,52 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: 配置 BBR 拥塞控制
-        if: inputs.bbr_variant != 'disabled' && inputs.bbr_variant != ''
-        working-directory: ${{ env.KERNEL_ROOT }}/common
-        run: |
-          set -e
-          BBR_VARIANT="${{ inputs.bbr_variant }}"
-          KERNEL_VER="${{ inputs.kernel_version }}"
-          echo "=== BBR 变体: $BBR_VARIANT / 内核: $KERNEL_VER ==="
+      if: inputs.bbr_variant != 'disabled' && inputs.bbr_variant != ''
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        set -e
+        BBR_VARIANT="${{ inputs.bbr_variant }}"
+        KERNEL_VER="${{ inputs.kernel_version }}"
+        echo "=== BBR 变体: $BBR_VARIANT / 内核: $KERNEL_VER ==="
 
-          EFFECTIVE_VARIANT="$BBR_VARIANT"
-          if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
-            EFFECTIVE_VARIANT="bbr"
+        EFFECTIVE_VARIANT="$BBR_VARIANT"
+        if [ "$BBR_VARIANT" = "bbrv3" ] && [ "$KERNEL_VER" != "6.1" ]; then
+          EFFECTIVE_VARIANT="bbr"
+        fi
+        if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ]; then
+          EFFECTIVE_VARIANT="bbr"
+        fi
+
+        # Исправленный блок для BBRv3 (прямая замена исходного кода)
+        if [ "$EFFECTIVE_VARIANT" = "bbrv3" ]; then
+          SRC_FILE="$GITHUB_WORKSPACE/patches/bbr/tcp_bbr_v3.c"
+          if [ ! -f "$SRC_FILE" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
+            curl -fsSL "https://raw.githubusercontent.com/google/bbr/v3/net/ipv4/tcp_bbr.c" -o "$SRC_FILE"
           fi
-          if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ]; then
-            EFFECTIVE_VARIANT="bbr"
+          cp "$SRC_FILE" net/ipv4/tcp_bbr.c
+          echo "CFLAGS_tcp_bbr.o += -Wno-constant-logical-operand" >> net/ipv4/Makefile
+        fi
+
+        # Блок для BBRPlus (остался без изменений, так как там настоящий патч)
+        if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
+          PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
+          if [ ! -f "$PATCH_FILE" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
+            curl -fsSL "https://raw.githubusercontent.com/UJX6N/bbrplus-${KERNEL_VER}/main/convert_official_linux-${KERNEL_VER}.x_src_to_bbrplus.patch" -o "$PATCH_FILE"
           fi
+          patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
+        fi
 
-          if [ "$EFFECTIVE_VARIANT" = "bbrv3" ]; then
-            PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrv3-6.1.patch"
-            if [ ! -f "$PATCH_FILE" ]; then
-              mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              curl -fsSL "https://raw.githubusercontent.com/google/bbr/v3/net/ipv4/tcp_bbr.c" -o "$PATCH_FILE"
-            fi
-            patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
-            echo "CFLAGS_tcp_bbr.o += -Wno-constant-logical-operand" >> net/ipv4/Makefile
-          fi
+        printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
+        
+        printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
 
-          if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
-            PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
-            if [ ! -f "$PATCH_FILE" ]; then
-              mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              curl -fsSL "https://raw.githubusercontent.com/UJX6N/bbrplus-${KERNEL_VER}/main/convert_official_linux-${KERNEL_VER}.x_src_to_bbrplus.patch" -o "$PATCH_FILE"
-            fi
-            patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
-          fi
+        if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
+          printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
+        fi
 
-          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
-          
-          printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
-
-          if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
-            printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
-          fi
-
-          echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
+        echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
