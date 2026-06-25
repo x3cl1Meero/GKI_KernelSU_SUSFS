@@ -1281,7 +1281,6 @@ jobs:
             EFFECTIVE_VARIANT="bbr"
           fi
           
-          # Добавлено условие && [ "$KERNEL_VER" != "6.1" ], чтобы разрешить bbrplus для ядра 6.1
           if [ "$BBR_VARIANT" = "bbrplus" ] && [ "$KERNEL_VER" != "5.10" ] && [ "$KERNEL_VER" != "5.15" ] && [ "$KERNEL_VER" != "6.1" ]; then
             EFFECTIVE_VARIANT="bbr"
           fi
@@ -1300,23 +1299,27 @@ jobs:
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrplus-${KERNEL_VER}.patch"
             if [ ! -f "$PATCH_FILE" ]; then
               mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              # При KERNEL_VER="6.1" эта строка автоматически сформирует нужную raw-ссылку:
-              # https://raw.githubusercontent.com/UJX6N/bbrplus-6.1/main/convert_official_linux-6.1.x_src_to_bbrplus.patch
               curl -fsSL "https://raw.githubusercontent.com/UJX6N/bbrplus-${KERNEL_VER}/main/convert_official_linux-${KERNEL_VER}.x_src_to_bbrplus.patch" -o "$PATCH_FILE"
             fi
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
           fi
 
-          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\nCONFIG_DEFAULT_BBR=y\n' >> "$DEFCONFIG"
+          # === ИЗМЕНЕННАЯ ЧАСТЬ НАЧИНАЕТСЯ ЗДЕСЬ ===
           
+          # 1. Базовые настройки (включаем BBR и FQ, но не делаем BBR дефолтным для всех)
+          printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\n' >> "$DEFCONFIG"
           printf '# CONFIG_TCP_CONG_WESTWOOD is not set\n# CONFIG_TCP_CONG_HTCP is not set\n# CONFIG_TCP_CONG_BIC is not set\n' >> "$DEFCONFIG"
 
+          # 2. Устанавливаем дефолтный алгоритм в зависимости от выбранного варианта
           if [ "$EFFECTIVE_VARIANT" = "bbrplus" ]; then
-            printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
+            printf '# CONFIG_DEFAULT_BBR is not set\n' >> "$DEFCONFIG"
+            printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
+          else
+            # Для bbrv3 или обычного bbr
+            printf 'CONFIG_DEFAULT_BBR=y\nCONFIG_DEFAULT_TCP_CONG="bbr"\n' >> "$DEFCONFIG"
           fi
 
           echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
-
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
