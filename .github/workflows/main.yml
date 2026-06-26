@@ -30,7 +30,7 @@ on:
           - Actions
           - Pre-Release
           - Release
-        default: Actions
+        default: Release
 
       # ==================== KernelSU 配置 ====================
       kernelsu_variant:
@@ -43,7 +43,7 @@ on:
           - ReSukiSU
           - Official
           #- Next
-        default: ReSukiSU
+        default: SukiSU
 
       # ==================== 可选配置 ====================
       version:
@@ -60,7 +60,7 @@ on:
       use_kpm:
         description: "KPM 功能（patched 尚不支持）"
         type: choice
-        default: "disabled (关闭)"
+        default: "patched (开启并修补，尚不支持)"
         options:
           - "disabled (关闭)"
           - "enabled (开启)"
@@ -83,11 +83,11 @@ on:
       use_zram:
         description: "启用 ZRAM 增强算法"
         type: boolean
-        default: false
+        default: true
       use_bbg:
         description: "启用 BBG 防格机"
         type: boolean
-        default: false
+        default: true
       bbr_variant_5_10:
         description: "BBR 变体 (5.10/5.15: bbr | bbrplus | disabled)"
         required: false
@@ -96,7 +96,7 @@ on:
           - "bbr"
           - "bbrplus"
           - "disabled"
-        default: "disabled"
+        default: "bbrplus"
         
       bbr_variant_6_1:
         description: "BBR 变体 (6.1: bbr | bbrv3 | disabled)"
@@ -106,11 +106,11 @@ on:
           - "bbr"
           - "bbrv3"
           - "disabled"
-        default: "disabled"
+        default: "bbrv3"
       use_rekernel:
         description: "启用 Re-Kernel 驱动"
         type: boolean
-        default: false
+        default: true
       cancel_susfs:
         description: "禁用 SUSFS"
         type: boolean
