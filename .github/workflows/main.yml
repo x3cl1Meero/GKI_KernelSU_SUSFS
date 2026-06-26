@@ -88,6 +88,25 @@ on:
         description: "启用 BBG 防格机"
         type: boolean
         default: false
+      bbr_variant_5_10:
+        description: "BBR 变体 (5.10/5.15: bbr | bbrplus | disabled)"
+        required: false
+        type: choice
+        options:
+          - "bbr"
+          - "bbrplus"
+          - "disabled"
+        default: "disabled"
+        
+      bbr_variant_6_1:
+        description: "BBR 变体 (6.1: bbr | bbrv3 | disabled)"
+        required: false
+        type: choice
+        options:
+          - "bbr"
+          - "bbrv3"
+          - "disabled"
+        default: "disabled"
       use_rekernel:
         description: "启用 Re-Kernel 驱动"
         type: boolean
