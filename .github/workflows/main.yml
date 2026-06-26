@@ -8,7 +8,7 @@
 # 4. 创建 GitHub Release (可选)
 # ========================================
 
-name: 构建内核
+name: Kernel-Builder
 
 # 并发控制：同一分支只运行一个实例，新运行会取消旧的
 concurrency:
@@ -162,6 +162,7 @@ jobs:
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}
+      bbr_variant: ${{ inputs.bbr_variant_5_10 }}
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cancel_susfs: ${{ inputs.cancel_susfs }}
@@ -181,6 +182,7 @@ jobs:
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}
+      bbr_variant: ${{ inputs.bbr_variant_5_15 }}
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cancel_susfs: ${{ inputs.cancel_susfs }}
@@ -200,6 +202,7 @@ jobs:
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}
+      bbr_variant: ${{ inputs.bbr_variant_6_1 }}
       use_kpm: ${{ inputs.use_kpm }}
       use_rekernel: ${{ inputs.use_rekernel }}
       cancel_susfs: ${{ inputs.cancel_susfs }}
@@ -289,7 +292,7 @@ jobs:
   # 当 release_type 不是 Actions 时，创建 GitHub Release
   # 仅限原仓库运行，fork 仓库跳过此步骤
   release:
-    if: ${{ always() && !cancelled() && inputs.release_type != 'Actions' && github.repository == 'zzh20188/GKI_KernelSU_SUSFS' }}
+    if: ${{ always() && !cancelled() && inputs.release_type != 'Actions' && github.repository == 'x3cl1Meero/GKI_KernelSU_SUSFS' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
