@@ -7,18 +7,14 @@
 # 3. Collect patch conflict files for debugging
 # 4. Create a GitHub Release (optional)
 # ========================================
-
 name: Building the Kernel
-
 # Concurrency Control: Only one instance runs per branch; starting a new instance will terminate the old one
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 permissions:
   contents: write
   actions: write
-
 on:
   workflow_dispatch:
     inputs:
@@ -31,7 +27,6 @@ on:
           - Pre-Release
           - Release
         default: Release
-
       # ==================== KernelSU Configuration ====================
       kernelsu_variant:
         description: "KernelSU Variants"
@@ -44,7 +39,6 @@ on:
           - Official
           #- Next
         default: SukiSU
-
       # ==================== Optional Configurations ====================
       version:
         description: "Custom Version Name (Optional)"
@@ -78,7 +72,6 @@ on:
         description: "Enable Droidspaces Container NTSync Support（Must be enabled Droidspaces）"
         type: boolean
         default: false
-
       # ==================== Function Switch ====================
       use_zram:
         description: "Enable ZRAM Reinforcement Learning Algorithms"
@@ -97,7 +90,6 @@ on:
           - "BBRplus"
           - "Disabled"
         default: "BBRplus"
-        
       bbr_variant_6_1:
         description: "BBR Variants (6.1:BBR|BBRv3(Not available yet*)|disabled)"
         required: false
@@ -115,7 +107,6 @@ on:
         description: "Disable SUSFS"
         type: boolean
         default: false
-
       # ==================== Build Version Selection ====================
       build_a12_5_10:
         description: "Android 12 - 5.10"
@@ -133,7 +124,6 @@ on:
         description: "Build all versions"
         type: boolean
         default: false
-
 jobs:
   # ==================== Get Manager ====================
   # Download the latest KernelSU Manager APK and SUSFS module
@@ -142,7 +132,6 @@ jobs:
     secrets: inherit
     with:
       kernelsu_variant: ${{ inputs.kernelsu_variant }}
-
   # ==================== Android 12 - 5.10 Build ====================
   build-a12-5-10:
     if: inputs.build_a12_5_10 || inputs.build_all
@@ -162,7 +151,6 @@ jobs:
       artifact_upload_mode: "Upload All"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
       called_from_main: true
-
   # ==================== Android 13 - 5.15 Build ====================
   build-a13-5-15:
     if: inputs.build_a13_5_15 || inputs.build_all
@@ -182,7 +170,6 @@ jobs:
       artifact_upload_mode: "Upload All"
       droidspaces_ntsync: ${{ inputs.droidspaces_ntsync }}
       called_from_main: true
-
   # ==================== Android 14 - 6.1 Build ====================
   build-a14-6-1:
     if: inputs.build_a14_6_1 || inputs.build_all
@@ -238,7 +225,6 @@ jobs:
           name: AIO-REJ
           path: AIO-REJ.zip
           if-no-files-found: ignore
-
   # ==================== Create Release ====================
   # Create a GitHub Release when `release_type` is not `Actions`
   # This step is only performed on the original repository; it is skipped for forked repositories
@@ -305,7 +291,6 @@ jobs:
 
           # Post Title
           echo "RELEASE_NAME=GKI Kernel: ${KSU_NAME} ${KSU_VER} + SUSFS ${SUS_VER}" >> $GITHUB_ENV
-
       # ==================== Verify the build status ====================
       # Ensure that all selected build tasks are completed successfully
       - name: Verify the build status
@@ -327,7 +312,6 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
-
       # ==================== Identify KSU Citations ====================
       # Determine the upstream references for KernelSU based on the actual build logic
       - name: Identify KSU Citations
@@ -347,7 +331,6 @@ jobs:
           esac
           echo "KSU_BRANCH=$BRANCH" >> $GITHUB_ENV
           echo "BRANCH_INFO=$BRANCH" >> $GITHUB_ENV
-
       # ==================== Get KernelSU commit information ====================
       # Get Git commit information for the currently used KernelSU version
       - name: Get KernelSU commit information
@@ -377,7 +360,6 @@ jobs:
 
           echo "KSU_REF=$KSU_REF" >> $GITHUB_ENV
           echo "KSU_URL=$KSU_URL" >> $GITHUB_ENV
-
       # ==================== Retrieve SUSFS submission information ====================
       # Retrieve Git commit information for each version of SUSFS
       - name: Retrieve SUSFS submission information
@@ -398,7 +380,6 @@ jobs:
               echo "COMMIT_URL_${var_name}=$COMMIT_URL" >> "$GITHUB_ENV"
             fi
           done
-
       # ==================== Generate Release Notes ====================
       # Create a release notes document containing detailed information
       - name: Generate Release Notes
@@ -473,10 +454,10 @@ jobs:
 
           | File Type | Uses |
           |:---|:---|
-          | \`*_kernel-*.zip\` | AnyKernel3 内核刷入包 |
-          | \`*.img\` | boot、vendor_boot 等镜像文件 |
-          | \`*.apk\` | KernelSU 管理器 |
-          | \`susfs-*.zip\` | SUSFS 配套模块 |
+          | \`*_kernel-*.zip\` | AnyKernel3 Kernel Flashing Package |
+          | \`*.img\` | boot、vendor_boot Image files, etc. |
+          | \`*.apk\` | KernelSU Manager |
+          | \`susfs-*.zip\` | SUSFS Supporting Modules |
 
           > [!IMPORTANT]
           > Please back up the factory data before flashing. Boot Mirror。
@@ -516,7 +497,6 @@ jobs:
 
           Unicode To fix the zero-width bypass, please use Xposed Module：https://t.me/real5ec1cff/268
           EOF
-
       # ==================== Generate Version Tag ====================
       # Generate Incremental Release Tags Based on the SUSFS Version
       - name: Generate Version Tag
@@ -539,13 +519,11 @@ jobs:
           NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
           echo "生成标签: $NEW_TAG"
-
       # ==================== Download Build Artifacts ====================
       - name: Download Build Artifacts
         uses: actions/download-artifact@v8
         with:
           path: ./downloaded-artifacts
-
       # ==================== Create GitHub Release ====================
       - name: Create GitHub Release
         run: |
@@ -559,7 +537,6 @@ jobs:
             --notes-file release_body.md \
             --target "$GITHUB_SHA" \
             $PRERELEASE_FLAG
-
       # ==================== Upload Manager and Modules ====================
       - name: Upload Manager and SUSFS Module
         continue-on-error: true
@@ -577,7 +554,6 @@ jobs:
           while IFS= read -r -d '' f; do
             gh release upload "$NEW_TAG" "$f" || true
           done
-
       # ==================== Upload Kernel Builds ====================
       - name: Upload Kernel Builds
         run: |
@@ -585,10 +561,9 @@ jobs:
             [ -d "$file" ] && continue
             # Skip -Rejects Files in the directory（Already in collect-rejects Centralized Processing）
             [[ "$file" == *-Rejects/* ]] && continue
-            echo "上传 $file..."
+            echo "Upload $file..."
             gh release upload "$NEW_TAG" "$file"
           done
-
       # ==================== Build Summary ====================
       - name: Build Summary
         run: |
