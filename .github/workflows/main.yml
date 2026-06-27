@@ -265,14 +265,14 @@ jobs:
           echo "SUS_VER=$SUS_VER" >> $GITHUB_ENV
 
           # Feature Toggle Display
-          echo "LZ4_STATUS=${{ inputs.use_zram && 'Open' || 'Not enabled' }}" >> $GITHUB_ENV
+          echo "LZ4_STATUS=${{ inputs.use_zram && 'Support' || 'Not enabled' }}" >> $GITHUB_ENV
           echo "BBG_STATUS=${{ inputs.use_bbg && 'Support' || 'Not supported' }}" >> $GITHUB_ENV
           if [[ "${{ inputs.use_kpm }}" == enabled* ]]; then
             echo "KPM_STATUS=Support" >> $GITHUB_ENV
           elif [[ "${{ inputs.use_kpm }}" == patched* ]]; then
             echo "KPM_STATUS=Support（The patch is not yet supported.）" >> $GITHUB_ENV
           else
-            echo "KPM_STATUS=Not enabled" >> $GITHUB_ENV
+            echo "KPM_STATUS=Enabled" >> $GITHUB_ENV
           fi
 
           # Hook Type
@@ -416,9 +416,9 @@ jobs:
               printf -- '- %s: [`%s`](%s)\n' "$label" "${hash:0:7}" "$url" >> susfs_commits.md
             fi
           }
-          append_susfs_commit "${{ inputs.build_a12_5_10 || inputs.build_all }}" "Android 12 / 5.10" "${COMMIT_HASH_gki_android12_5_10}" "${COMMIT_URL_gki_android12_5_10}"
-          append_susfs_commit "${{ inputs.build_a13_5_15 || inputs.build_all }}" "Android 13 / 5.15" "${COMMIT_HASH_gki_android13_5_15}" "${COMMIT_URL_gki_android13_5_15}"
-          append_susfs_commit "${{ inputs.build_a14_6_1 || inputs.build_all }}" "Android 14 / 6.1" "${COMMIT_HASH_gki_android14_6_1}" "${COMMIT_URL_gki_android14_6_1}"
+          append_susfs_commit "${{ inputs.build_a12_5_10 || inputs.build_all }}" "Android 12/5.10" "${COMMIT_HASH_gki_android12_5_10}" "${COMMIT_URL_gki_android12_5_10}"
+          append_susfs_commit "${{ inputs.build_a13_5_15 || inputs.build_all }}" "Android 13/5.15" "${COMMIT_HASH_gki_android13_5_15}" "${COMMIT_URL_gki_android13_5_15}"
+          append_susfs_commit "${{ inputs.build_a14_6_1 || inputs.build_all }}" "Android 14/6.1" "${COMMIT_HASH_gki_android14_6_1}" "${COMMIT_URL_gki_android14_6_1}"
           if [[ ! -s susfs_commits.md ]]; then
             echo "- The file corresponding to this build was not found. SUSFS Submit Information." > susfs_commits.md
           fi
@@ -428,7 +428,7 @@ jobs:
 
           **$KSU_NAME $KSU_VER** + **SUSFS $SUS_VER**
 
-          | 项目 | 内容 |
+          | Project | Content |
           |:---|:---|
           | Publication Type | ${{ inputs.release_type }} |
           | Publication Date | $BUILD_DATE |
