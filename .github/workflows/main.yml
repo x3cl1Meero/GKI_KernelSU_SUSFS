@@ -554,16 +554,29 @@ jobs:
           while IFS= read -r -d '' f; do
             gh release upload "$NEW_TAG" "$f" || true
           done
-      # ==================== Upload Kernel Builds ====================
+                  # ==================== Upload Kernel Builds ====================
       - name: Upload Kernel Builds
         run: |
-          for file in ./downloaded-artifacts/*_kernel-*/*; do
-            [ -d "$file" ] && continue
-            # Skip -Rejects Files in the directory（Already in collect-rejects Centralized Processing）
-            [[ "$file" == *-Rejects/* ]] && continue
-            echo "Upload $file..."
-            gh release upload "$NEW_TAG" "$file"
+          for dir in ./downloaded-artifacts/*_kernel-*/; do
+            # Убеждаемся, что текущий элемент — это директория
+            [ -d "$dir" ] || continue
+            
+            # Пропускаем директории -Rejects
+            [[ "$dir" == *-Rejects/ ]] && continue
+            
+            # Получаем базовое имя папки
+            dir_name=$(basename "$dir")
+            
+            echo "Упаковка $dir_name в ZIP-архив..."
+            # Переходим в директорию, архивируем ее содержимое и возвращаемся
+            cd "$dir"
+            zip -r -q -9 "../${dir_name}.zip" .
+            cd - > /dev/null
+            
+            echo "Загрузка архива ${dir_name}.zip..."
+            gh release upload "$NEW_TAG" "./downloaded-artifacts/${dir_name}.zip"
           done
+
       # ==================== Build Summary ====================
       - name: Build Summary
         run: |
