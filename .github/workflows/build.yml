@@ -113,7 +113,7 @@ jobs:
           echo "Droidspaces   : ${{ inputs.droidspaces }}"
           echo "NTSync        : ${{ inputs.droidspaces_ntsync }}"
           echo "Product Upload Mode  : ${{ inputs.artifact_upload_mode }}"
-          echo "Stock Config  : 自动检测 config/stock_defconfig"
+          echo "Stock Config  : Automatic Detection config/stock_defconfig"
           echo "========================================"
 
       - name: Free Up Disk Space
