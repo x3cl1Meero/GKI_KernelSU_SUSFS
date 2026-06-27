@@ -650,7 +650,8 @@ jobs:
 
           patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
 
-            # Restore the temporary context after applying the main patch to prevent irrelevant source code differences from being retained in the final product          if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+            # Restore the temporary context after applying the main patch to prevent irrelevant source code differences from being retained in the final product
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
             if [[ "$CURRENT_SUB" -le 43 ]]; then
               echo "Restore Android 12 5.10 base.c Temporary Adjustment"
               sed -i 's/^size_t this_len = min_t(size_t, count, PAGE_SIZE);$/int this_len = min_t(int, count, PAGE_SIZE);/' fs/proc/base.c
