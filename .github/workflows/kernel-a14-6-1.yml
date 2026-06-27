@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       kernelsu_variant:
-        description: "KernelSU 变体"
+        description: "KernelSU Variants"
         required: true
         type: choice
         options:
@@ -18,27 +18,27 @@ on:
           - SukiSU(40726)
           - SukiSU(40548)
           - ReSukiSU
-        default: ReSukiSU
+        default: SukiSU
       version:
-        description: "自定义版本名 (可选)"
+        description: "Custom Version Name (Optional)"
         required: false
         type: string
       build_time:
-        description: "自定义构建时间 (可选，N或留空=当前UTC)"
+        description: "Custom Build Time (Optional，N or leave blank=Current UTC)"
         required: false
         type: string
-        default: "Sun Dec 01 08:10:00 UTC 2024"
+        default: "N"
       use_kpm:
-        description: "KPM 功能（patched 尚不支持）"
+        description: "KPM Features"
         required: true
         type: choice
-        default: "disabled (关闭)"
+        default: "patched"
         options:
-          - "disabled (关闭)"
-          - "enabled (开启)"
-          - "patched (开启并修补，尚不支持)"
+          - "disabled"
+          - "enabled"
+          - "patched"
       droidspaces:
-        description: "Droidspaces 容器支持"
+        description: "Droidspaces Container Support"
         required: false
         type: choice
         options:
@@ -48,30 +48,30 @@ on:
           - "345"
         default: "off"
       artifact_upload_mode:
-        description: "构建产物上传模式"
+        description: "Building a Product Upload Model"
         required: true
         type: choice
         options:
-          - "仅上传 AnyKernel3.zip"
-          - "上传全部"
-        default: "仅上传 AnyKernel3.zip"
+          - "Upload Only AnyKernel3.zip"
+          - "Upload All"
+        default: "Upload Only AnyKernel3.zip"
       droidspaces_ntsync:
-        description: "启用 Droidspaces 容器 NTSync 支持（需启用 Droidspaces）"
+        description: "Enable Droidspaces Container NTSync Support（Must be enabled Droidspaces）"
         required: false
         type: boolean
         default: false
       use_zram:
-        description: "启用 ZRAM 增强算法"
-        required: true
-        type: boolean
-        default: false
-      use_bbg:
-        description: "启用 BBG 防格机"
+        description: "Enable ZRAM Reinforcement Learning Algorithms"
         required: true
         type: boolean
         default: true
+      use_bbg:
+        description: "Enable Baseband-guard LSM Module"
+        required: true
+        type: boolean
+        default: true # Изменено с false на true
       bbr_variant:
-        description: "BBR 变体 (bbr=标准 | bbrv3=6.1专用 | disabled=关闭)"
+        description: "BBR variant (bbr=standard|bbrv3=6.1-specific|disabled=off)"
         required: false
         type: choice
         options:
@@ -80,12 +80,12 @@ on:
           - "disabled"
         default: "bbrv3"
       use_rekernel:
-        description: "启用 Re-Kernel 驱动"
+        description: "Enable Re-Kernel Driver"
         required: false
         type: boolean
         default: true
       cancel_susfs:
-        description: "禁用 SUSFS"
+        description: "Disable SUSFS"
         required: true
         type: boolean
         default: false
@@ -100,7 +100,7 @@ on:
       build_time:
         required: false
         type: string
-        default: "Sun Dec 01 08:10:00 UTC 2024"
+        default: "N"
       use_zram:
         required: true
         type: boolean
@@ -110,7 +110,7 @@ on:
       bbr_variant:
         required: false
         type: string
-        default: "bbrv3"
+        default: "bbrplus"
       use_kpm:
         required: true
         type: string
@@ -128,13 +128,13 @@ on:
       artifact_upload_mode:
         required: false
         type: string
-        default: "上传全部"
+        default: "Upload All"
       droidspaces_ntsync:
         required: false
         type: boolean
         default: false
       called_from_main:
-        description: "是否从 main.yml 调用（内部使用）"
+        description: "Whether from main.yml Call（For internal use only）"
         required: false
         type: boolean
         default: false
