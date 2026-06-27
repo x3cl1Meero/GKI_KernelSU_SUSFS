@@ -1311,7 +1311,7 @@ jobs:
             printf 'CONFIG_TCP_CONG_BBRPLUS=y\nCONFIG_DEFAULT_TCP_CONG="bbrplus"\n' >> "$DEFCONFIG"
           fi
 
-          echo "=== BBR ($EFFECTIVE_VARIANT) настройка завершена ==="
+          echo "=== BBR ($EFFECTIVE_VARIANT) Setup complete ==="
       - name: Add SUSFS Configuration
         if: inputs.enable_susfs
         run: |
