@@ -1455,7 +1455,7 @@ jobs:
             echo "Currently SUSFS Date of Most Recent Submission: ${SUSFS_LATEST_COMMIT_DATE}"
             echo "If the dates are different or too far apart, the patch will not work、Compilation Failed"
 
-      - name: Applications KPM Binary Patch (SukiSU/ReSukiSU/Next)
+      - name: Applications KPM Binary Patch (SukiSU)
         if: startsWith(inputs.use_kpm, 'patched') && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU' || inputs.ksu_variant == 'Next')
         run: |
           echo "=== Let's start binary patching KPM ==="
