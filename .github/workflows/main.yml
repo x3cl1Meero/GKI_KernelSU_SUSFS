@@ -518,7 +518,7 @@ jobs:
 
           NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
           echo "NEW_TAG=$NEW_TAG" >> $GITHUB_ENV
-          echo "生成标签: $NEW_TAG"
+          echo "Generate Tags: $NEW_TAG"
       # ==================== Download Build Artifacts ====================
       - name: Download Build Artifacts
         uses: actions/download-artifact@v8
