@@ -1288,7 +1288,7 @@ jobs:
             PATCH_FILE="$GITHUB_WORKSPACE/patches/bbr/bbrv3-6.1.patch"
             if [ ! -f "$PATCH_FILE" ]; then
               mkdir -p "$GITHUB_WORKSPACE/patches/bbr"
-              curl -fsSL "https://raw.githubusercontent.com/WildKernels/kernel_patches/3a75d651cf999e213c6998a7101eea7c5c6c741e/common/bbrv3/0001-net-tcp-backport-BBRv3-to-android14-6.1.patch" -o "$PATCH_FILE"
+              curl -fsSL "https://raw.githubusercontent.com/x3cl1Meero/kernel_patches/main/bbr/bbrv3-android14-6.1.patch" -o "$PATCH_FILE"
             fi
             patch -p1 --forward --fuzz=3 < "$PATCH_FILE"
             echo "CFLAGS_tcp_bbr.o += -Wno-constant-logical-operand" >> net/ipv4/Makefile
